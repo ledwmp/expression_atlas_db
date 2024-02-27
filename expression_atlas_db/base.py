@@ -69,7 +69,7 @@ class Study(DataSet):
     geo_id = Column(String(20))
     srp_id = Column(String(20))
     bio_id = Column(String(20))
-    pmid = Column(Integer)
+    pmid = Column(String(100))
     is_public = Column(Boolean, default=True)
     quality = Column(String(20))
     timestamps = Column(String(100))
@@ -91,7 +91,7 @@ class Sample(DataSet):
 
     __table_args__ = (
                     Index('idx_srx_id_sample', 'srx_id'),
-                    UniqueConstraint('srx_id',),
+                    UniqueConstraint('srx_id','study_id'),
                     {},
                     )
     __mapper_args__ = { 'polymorphic_identity': 'sample' }
@@ -114,7 +114,7 @@ class Contrast(DataSet):
     study = relationship('Study', foreign_keys=study_id)
 
 
-    # __table_args__ = (UniqueConstraint('srp_id','contrast_name',),{})
+    __table_args__ = (UniqueConstraint('study_id','contrast_name',),{})
     __mapper_args__ = { 'polymorphic_identity': 'contrast' }
 
 
@@ -144,16 +144,16 @@ class DifferentialExpression(Base):
     __tablename__ = 'differentialexpression'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    # id = Column(Integer, Identity(), primary_key=True)
     contrast_id = Column(Integer, ForeignKey('contrast.id'))
     sequenceregion_id = Column(Integer, ForeignKey('sequenceregion.id'))
     basemean = Column(Float)
     log2foldchange = Column(Float)
     lfcse = Column(Float)
     stat = Column(Float)
-    pvalue = Column(Float) #store as log10
+    pvalue = Column(Float)
+    log10_pvalue = Column(Float)
     padj = Column(Float)
-    log10_padj = Column(Float) #only store padjusted -> raw p-value -> think about precision.
+    log10_padj = Column(Float)
     control_mean = Column(Float)
     case_mean = Column(Float)
     contrast = relationship('Contrast', foreign_keys=contrast_id, )
@@ -164,12 +164,24 @@ class DifferentialExpression(Base):
     #                 Index('idx_sequenceregion_id_differentialexpression', 'sequenceregion_id'),
     #                 {},
     #                 )
+    
+    _column_map = {
+                'basemean':'baseMean',
+                'log2foldchange':'log2FoldChange',
+                'lfcse':'lfcSE',
+                'stat':'stat',
+                'log10_pvalue':'log10_pvalue',
+                'pvalue':'pvalue',
+                'padj':'padj',
+                'log10_padj':'-log10_padj',
+                'control_mean':'control_mean',
+                'case_mean':'case_mean'
+                }
 
 class SampleMeasurement(Base):
     __tablename__ = 'samplemeasurement'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    # id = Column(Integer, Identity(), primary_key=True)
     sample_id = Column(Integer, ForeignKey('sample.id'))
     sequenceregion_id = Column(Integer, ForeignKey('sequenceregion.id'))
     counts = Column(Float)
@@ -186,6 +198,12 @@ class SampleMeasurement(Base):
     #                 {},
     #                 )
 
+    _column_map = {
+                'counts':'counts',
+                'normed_counts':'normed_counts',
+                'tpm':'raw_tpm',
+                'normed_counts_transform':'normed_counts_transform'
+                }
 
 class _Session(_SA_Session):
     """an sqlalchemy session object to interact with the Velia database

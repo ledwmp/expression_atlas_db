@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 import pandas as pd
 from typing import List, Tuple, Dict
@@ -9,8 +10,8 @@ import time
 import http
 import s3fs
 import anndata as ad
-import logging
 import tempfile
+import logging
 
 from expression_atlas_db import settings
 
@@ -88,10 +89,10 @@ class GTFParser:
             transcript_df.drop_duplicates('transcript_id', inplace=True)
             gene_df.drop_duplicates('gene_id', inplace=True)
 
-        # if (transcript_df['transcript_id'].value_counts()[0] > 1) | \
-        #     (transcript_df['veliadb_id'].value_counts()[0] > 1) | \
-        #     (gene_df['gene_id'].value_counts()[0] > 1) | \
-        #     (gene_df['veliadb_id'].value_counts()[0] > 1):
+        # if (transcript_df['transcript_id'].value_counts().values[0] > 1) | \
+        #     (transcript_df['veliadb_id'].value_counts().values[0] > 1) | \
+        #     (gene_df['gene_id'].value_counts().values[0] > 1) | \
+        #     (gene_df['veliadb_id'].value_counts().values[0] > 1):
         #     raise ValueError('Duplicated gene/transcript/veliadb ids detected in gtf.')
 
         self.transcript_df = transcript_df.copy()
@@ -152,11 +153,10 @@ class ExperimentParser:
         self._gene_ts = None
         self._transcript_size = None
         self._gene_size = None
-
-        # self._adata_gene = self.load_adata(adata_type='gene')
-        # self._adata_transcript = self.load_adata(adata_type='transcript')
         
     def enable_s3(self, s3fs:s3fs.core.S3FileSystem) -> None:
+        """ 
+        """
         self._s3_enabled = True
         self._s3fs = s3fs
 
@@ -215,6 +215,9 @@ class ExperimentParser:
     def samples(self) -> List[str]:
         """
         """
+        if not self._adata_transcript or not self._adata_gene:
+            raise AttributeError('Set adatas with load_adatas method.')
+
         if (self._adata_gene.obs.index.values != self._adata_transcript.obs.index.values).all():
             raise ValueError('Study gene/transcript adatas have different samples or misordered samples.')
         
@@ -224,10 +227,16 @@ class ExperimentParser:
     def samples_metadata(self) -> pd.DataFrame:
         """ 
         """
+        if not self._adata_transcript or not self._adata_gene:
+            raise AttributeError('Set adatas with load_adatas method.')
+
         if (self._adata_gene.obs.index.values != self._adata_transcript.obs.index.values).all():
             raise ValueError('Study gene/transcript adatas have different samples or misordered samples.')
         
-        return self._adata_gene.obs.copy()
+        meta = self._adata_gene.obs.copy()
+        meta[meta.columns[meta.dtypes == 'category']] = meta[meta.columns[meta.dtypes == 'category']].astype(object)
+
+        return meta
 
     def prepare_differentialexpression(
                 self,
@@ -238,6 +247,9 @@ class ExperimentParser:
                 ) -> Dict[str,Tuple[pd.DataFrame,List[str],List[str]]]:
         """
         """
+        if not self._adata_transcript or not self._adata_gene:
+            raise AttributeError('Set adatas with load_adatas method.')
+
         if measurement_type == 'transcript':
             adata = self._adata_transcript
         else:
@@ -249,14 +261,17 @@ class ExperimentParser:
             use_columns = de_columns.copy()
             if 'control_mean' in de_columns and 'case_mean' in de_columns:
                 try:
-                    control_loc, case_loc = np.where([c.endswith('meannormedcounts') for c in adata.uns['stat_results'][c]])[0]
+                    control_loc, case_loc = np.where([c.endswith('meannormedcounts') for c in adata.uns['stat_results'][c].columns])[0]
                     use_columns[use_columns.index('control_mean')] = adata.uns['stat_results'][c].columns[control_loc]
                     use_columns[use_columns.index('case_mean')] = adata.uns['stat_results'][c].columns[case_loc]
-                except:
-                    raise Exception('DE columns not formatted properly.')
+                except Exception as e: 
+                    raise Exception('DE columns not formatted properly.') from e
             else:
                 use_columns = [c for c in use_columns if c not in ('control_mean','case_mean',)]
                 de_columns = [c for c in use_columns if c not in ('control_mean','case_mean',)]
+            
+            if 'log10_pvalue' in de_columns:
+                use_columns[use_columns.index('log10_pvalue')] = 'pvalue'
 
             de_df = adata.uns['stat_results'][c][use_columns].copy()
 
@@ -268,8 +283,23 @@ class ExperimentParser:
             de_df['right_condition_display'] = c.upper().split('_VS_')[1]
 
             de_df.loc[de_df['padj'].isna(),'padj'] = 1.0
+
+            # TODO: Find a better way to truncate the small pvalues to prevent load errors in redshift.
+            # Redshift/Postgres double precision minimum should be ~2.2250738585072014e-308
+
+            de_df.loc[np.isneginf(de_df['padj']) | (de_df['padj'] < sys.float_info.min*10), 'padj'] = 0.0
+            de_df.loc[np.isneginf(de_df['pvalue']) | (de_df['pvalue'] < sys.float_info.min*10), 'pvalue'] = 0.0
             de_df.loc[de_df['pvalue'].isna(),'pvalue'] = 1.0
             de_df.loc[de_df['log2foldchange'].isna(),'log2foldchange'] = 0.0
+
+            if 'log10_pvalue' in de_columns:
+                de_df.loc[de_df['log10_pvalue'].isna(),'log10_pvalue'] = 1.0
+                de_df['log10_pvalue'] = -1.*np.log10(de_df['log10_pvalue'])
+                de_df.loc[de_df['log10_pvalue'].isna(), 'log10_pvalue'] = 1.0
+
+                # This is the same log10_pvalue limit used in the processing pipeline.
+
+                de_df.loc[de_df['log10_pvalue'] > 400., 'log10_pvalue'] = 400.
 
             left_samples = adata.obs[adata.obs[adata.uns['contrasts'][c][0]] == adata.uns['contrasts'][c][1]].index.tolist()
             right_samples = adata.obs[adata.obs[adata.uns['contrasts'][c][0]] == adata.uns['contrasts'][c][2]].index.tolist()
@@ -285,6 +315,8 @@ class ExperimentParser:
                 ) -> Tuple[np.ndarray,np.ndarray,np.ndarray,List[str]]:
         """
         """
+        if not self._adata_transcript or not self._adata_gene:
+            raise AttributeError('Set adatas with load_adatas method.')
         if measurement_type == 'transcript':
             adata = self._adata_transcript
         else:
@@ -375,7 +407,7 @@ class MetaDataFetcher:
         return df
 
 
-    def fetch_url(self, url:str, attempt_n:int=0, max_attempts:int=5) -> None:
+    def fetch_url(self, url:str, attempt_n:int=0, max_attempts:int=5) -> http.client.HTTPResponse:
         """ 
         """
         try:
@@ -386,28 +418,26 @@ class MetaDataFetcher:
             else:
                 time.sleep(15)
             if attempt_n > max_attempts:
-                logging.exception(e)
                 raise Exception(f'Max attempts on url: {url}')
             attempt = attempt_n+1
             return self.fetch_url(url, attempt_n=attempt)
         except urllib.error.URLError:
             time.sleep(15)
             if attempt_n > max_attempts:
-                logging.exception(e)
                 raise Exception(f'Max attempts on url: {url}')
             attempt = attempt_n+1
             return self.fetch_url(url, attempt_n=attempt)
         return response
 
-    def fetch_bioproject_info(self) -> http.client.HTTPResponse:
+    def fetch_bioproject_info(self) -> None:
         """ 
         """
         try:
             response = self.fetch_url(self._search_bioproject_url.format(id=self._project_id)).read()
             tree = ET.fromstring(response)
             project_id = tree.find('.//IdList/Id').text
-        except AttributeError as e:
-            raise e
+        except Exception as e:
+            raise Exception('Unable to find valid bioproject id given project_id provided.') from e
 
         try:
             response = self.fetch_url(self._fetch_bioproject_url.format(id=project_id)).read()
@@ -415,7 +445,7 @@ class MetaDataFetcher:
             if tree.find('.//error'):
                 raise ValueError('Cannot find project_id specified.')
         except ValueError as e:
-            raise e
+            logging.exception('Unable to fetch bioproject given bioproject id', e)
         
         try:
             _geo_id = tree.find('.//CenterID').text
@@ -423,23 +453,21 @@ class MetaDataFetcher:
                 raise ValueError('Provided geo_id not the same as geo_id associated with project.')
             elif not self._geo_id:
                 self._geo_id = _geo_id                
-        except AttributeError as e:
-            pass
-        except ValueError as e:
-            pass
+        except Exception as e:
+            logging.exception('Unable to link bioproject id to a geo id.', e)
 
         try:
             self._project_title = tree.find('.//ProjectDescr/Name').text
             self._project_summary = tree.find('.//ProjectDescr/Description').text
-        except AttributeError as e:
-            pass
+        except Exception as e:
+            logging.exception('Unable to fetch project name/description from bioproject id.', e)
     
         try:
             for pmid in tree.findall('.//Publication/Reference'):
                 self._pmids.append(pmid.text)
-        except AttributeError as e:
-            pass
-
+        except Exception as e:
+            logging.exception('Unable to find pubmed ids attached to bioproject record.', e)
+    
     def link_project_id(self, is_sra:bool=True) -> str:
         """ 
         """
@@ -454,11 +482,8 @@ class MetaDataFetcher:
                 prj_id = tree.find('.//LinkSetDb[LinkName="sra_bioproject"]/Link/Id').text
                 if not prj_id:
                     raise ValueError('Unable to find project_id in bioprojects.')
-            except AttributeError as e:
-                raise e
-            except ValueError as e:
-                raise e
-
+            except Exception as e:
+                raise Exception('Unable to link sra_id to bioproject id.') from e
         else:
             try:
                 response = self.fetch_url(self._search_bioproject_url.format(id=self._study_id)).read()
@@ -466,38 +491,30 @@ class MetaDataFetcher:
                 prj_id = tree.find('.//IdList/Id').text
                 if not prj_id:
                     raise ValueError('Unable to find project_id in bioprojects.')
-            except AttributeError as e:
-                raise e
-            except ValueError as e:
-                raise e
-            
+            except Exception as e:
+                raise Exception('Unable to link geo_id to bioproject id.') from e            
         try:
             response = self.fetch_url(self._summary_bioproject_url.format(id=prj_id)).read()
             tree = ET.fromstring(response)
             bioproject_id = tree.find('.//Project_Acc').text
             if not bioproject_id:
-                raise ValueError('Unable to bioproject summary from bioproject id.')
-        except AttributeError as e:
-            raise e
-        except ValueError as e:
-            raise e
+                raise ValueError('Unable to find bioproject summary from bioproject id.')
+        except Exception as e:
+            raise Exception('Unable to find bioproject accession from bioproject id.') from e          
 
         return bioproject_id
 
     def fetch_srx_info(self, batch_n:int=50) -> None:
         """ 
         """
-        try:
-            # Batch srx_ids into groups of batch_n.
-            sra_df = pd.DataFrame()
-            for i in range(0, len(self._srx_ids), batch_n):
-                response = self.fetch_url(self._fetch_sra_url_text.format(ids=','.join(self._srx_ids[i:i+batch_n]))).read()
-                _sra_df = pd.read_csv(StringIO(response.decode()), quotechar='"', delimiter=',')
-                sra_df = pd.concat([sra_df, _sra_df], ignore_index=True)
-            if sra_df['Experiment'].unique().shape[0] != len(self._srx_ids):
-                raise ValueError('Number of srx_ids retrieved does not equal number initialized. Probably misformatted srx_id.')
-        except ValueError as e:
-            raise e
+        # Batch srx_ids into groups of batch_n.
+        sra_df = pd.DataFrame()
+        for i in range(0, len(self._srx_ids), batch_n):
+            response = self.fetch_url(self._fetch_sra_url_text.format(ids=','.join(self._srx_ids[i:i+batch_n]))).read()
+            _sra_df = pd.read_csv(StringIO(response.decode()), quotechar='"', delimiter=',')
+            sra_df = pd.concat([sra_df, _sra_df], ignore_index=True)
+        if sra_df['Experiment'].unique().shape[0] != len(self._srx_ids):
+            raise ValueError('Number of srx_ids retrieved does not equal number initialized. Probably misformatted srx_id.')
 
         if self._study_id.startswith('GS'):
             self._srp_id = sra_df['SRAStudy'].unique()[0]
@@ -506,30 +523,24 @@ class MetaDataFetcher:
             response = self.fetch_url(self._ena_url.format(bio_id=self._project_id,extra_params=','.join(self._ena_fields))).read()
             ena_df = pd.read_csv(StringIO(response.decode()), delimiter='\t')
         except Exception as e:
-            raise e
+            raise Exception('Unable to fetch data from ena given project id.') from e
 
         self._sra_df = sra_df.merge(ena_df, left_on='Run', right_on='run_accession', how='left')
         
     def resolve_all_ids(self) -> None:
         """
         """
-        try:
-            if self._study_id.startswith('GS'):
-                self._geo_id = self._study_id
-                self._project_id = self.link_project_id(is_sra=False)
-            elif any(map(lambda x: self._study_id.startswith(x), ('ER','SR','DR',))):
-                self._srp_id = self._study_id
-                self._project_id = self.link_project_id(is_sra=True)
-            else:
-                raise ValueError('Cannot define db from study_id.')
-        except ValueError as e:
-            raise e
+        if self._study_id.startswith('GS'):
+            self._geo_id = self._study_id
+            self._project_id = self.link_project_id(is_sra=False)
+        elif any(map(lambda x: self._study_id.startswith(x), ('ER','SR','DR',))):
+            self._srp_id = self._study_id
+            self._project_id = self.link_project_id(is_sra=True)
+        else:
+            raise ValueError('Cannot define db from study_id.')
 
         self.fetch_bioproject_info()
         self.fetch_srx_info()
 
 if __name__ == '__main__':
     pass
-
-
-
