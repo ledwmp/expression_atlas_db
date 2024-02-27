@@ -1,23 +1,23 @@
+from typing import Tuple
 from types import MethodType
 
+import sqlalchemy
 from sqlalchemy import Column, Integer, String, Float, \
                         Boolean, JSON, Text, ForeignKey, \
-                        Index, MetaData, create_engine
+                        Identity, Index, MetaData, create_engine
 from sqlalchemy.orm.session import Session as _SA_Session
 from sqlalchemy.sql.expression import text
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.declarative import declarative_base
-# from sqlalchemy_redshift.dialect import SUPER
+from sqlalchemy_redshift.dialect import SUPER
 
 from expression_atlas_db.settings import db_connection_string, \
                                             redshift_connection_string, \
                                             sqlite_connection_string
 
-engine = create_engine(sqlite_connection_string)# echo=True)
-Base = declarative_base(bind=engine)
-metadata = MetaData(bind=engine)
+Base = declarative_base()
 
 class SequenceRegion(Base):
     __tablename__ = 'sequenceregion'
@@ -34,22 +34,24 @@ class Gene(SequenceRegion):
     __tablename__ = 'gene'
     
     id = Column(Integer, ForeignKey('sequenceregion.id'), primary_key=True)
-    gene_id = Column(String(20))
+    gene_id = Column(String(50))
     gene_biotype = Column(String(200))
 
-    # __table_args__ = (UniqueConstraint('gene_id',),{})
+    __table_args__ = (UniqueConstraint('gene_id',),{})
+    __table_args__ = (Index('idx_gene_id_gene', 'gene_id'),{})
     __mapper_args__ = { 'polymorphic_identity': 'gene' }
 
 class Transcript(SequenceRegion):
     __tablename__ = 'transcript'
     
     id = Column(Integer, ForeignKey('sequenceregion.id'), primary_key=True)
-    transcript_id = Column(String(20))
+    transcript_id = Column(String(50))
     gene_id = Column(Integer, ForeignKey('gene.id'))
     gene_biotype = Column(String(200))
     gene = relationship('Gene', foreign_keys=gene_id)
 
-    # __table_args__ = (UniqueConstraint('transcript_id',),{})
+    __table_args__ = (UniqueConstraint('transcript_id',),{})
+    __table_args__ = (Index('idx_transcript_id_transcript', 'transcript_id'),{})
     __mapper_args__ = { 'polymorphic_identity': 'transcript' }
 
 class DataSet(Base):
@@ -63,12 +65,15 @@ class DataSet(Base):
 class Study(DataSet):
     __tablename__ = 'study'
     id = Column(Integer, ForeignKey('dataset.id'), primary_key=True)
+    velia_id = Column(String(20), nullable=False)
     geo_id = Column(String(20))
-    srp_id = Column(String(20), nullable=False)
-    bio_id = Column(String(20), nullable=False)
+    srp_id = Column(String(20))
+    bio_id = Column(String(20))
     pmid = Column(Integer)
-    is_public = Column(Boolean, default=True) 
-    quality = Column(String(20)) #switch to categorical -> quality, qualified, etc. 
+    is_public = Column(Boolean, default=True)
+    quality = Column(String(20))
+    timestamps = Column(String(100))
+    sizes = Column(String(100))
     title = Column(String(200))
     description = Column(Text)
 
@@ -86,7 +91,6 @@ class Sample(DataSet):
 
     __table_args__ = (
                     Index('idx_srx_id_sample', 'srx_id'),
-                    Index('idx_sample_condition_1_sample', 'fields'),
                     UniqueConstraint('srx_id',),
                     {},
                     )
@@ -136,45 +140,11 @@ class SampleContrast(DataSet):
     __table_args__ = (UniqueConstraint('sample_id','contrast_id'),{})
     __mapper_args__ = { 'polymorphic_identity': 'samplecontrast' }
 
-# class Measurement(Base):
-#     __tablename__ = 'measurement'
-
-#     id = Column(Integer, primary_key=True, autoincrement=True)
-#     sequenceregion_id = Column(Integer, ForeignKey('sequenceregion.id'))
-#     study_id = Column(Integer, ForeignKey('study.id'))
-#     type = Column(String(40))
-#     sequenceregion = relationship('SequenceRegion', foreign_keys=sequenceregion_id)
-#     study = relationship('Study', foreign_keys=study_id)
-
-#     __table_args__ = (Index('idx_sequenceregion_id_measurement', 'sequenceregion_id'),{})
-#     __mapper_args__ = { 'polymorphic_identity': 'measurement', 'polymorphic_on': 'type' }
-
-# class DifferentialExpression(Measurement):
-#     __tablename__ = 'differentialexpression'
-
-#     id = Column(Integer, ForeignKey('measurement.id'), primary_key=True)
-#     contrast_id = Column(Integer, ForeignKey('contrast.id'))
-#     basemean = Column(Float)
-#     log2foldchange = Column(Float)
-#     lfcse = Column(Float)
-#     stat = Column(Float)
-#     pvalue = Column(Float) #store as log10
-#     padj = Column(Float)
-#     log10_padj = Column(Float) #only store padjusted -> raw p-value -> think about precision.
-#     control_mean = Column(Float)
-#     case_mean = Column(Float)
-#     contrast = relationship('Contrast', foreign_keys=contrast_id, )
-
-#     __table_args__ = (
-#                     Index('idx_contrast_id_differential_expression', 'contrast_id'),
-#                     {},
-#                     )
-#     __mapper_args__ = { 'polymorphic_identity': 'differentialexpression' }
-    
 class DifferentialExpression(Base):
     __tablename__ = 'differentialexpression'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    # id = Column(Integer, Identity(), primary_key=True)
     contrast_id = Column(Integer, ForeignKey('contrast.id'))
     sequenceregion_id = Column(Integer, ForeignKey('sequenceregion.id'))
     basemean = Column(Float)
@@ -189,33 +159,17 @@ class DifferentialExpression(Base):
     contrast = relationship('Contrast', foreign_keys=contrast_id, )
     sequenceregion = relationship('SequenceRegion', foreign_keys=sequenceregion_id)
 
-    __table_args__ = (
-                    Index('idx_contrast_id_differentialexpression', 'contrast_id'),
-                    Index('idx_sequenceregion_id_differentialexpression', 'sequenceregion_id'),
-                    {},
-                    )
-
-# class SampleMeasurement(Measurement):
-#     __tablename__ = 'samplemeasurement'
-
-#     id = Column(Integer, ForeignKey('measurement.id'), primary_key=True)
-#     sample_id = Column(Integer, ForeignKey('sample.id'))
-#     counts = Column(Float)
-#     normed_counts = Column(Float)
-#     tpm = Column(Float)
-#     normed_counts_transform = Column(Float)
-#     sample = relationship('Sample', foreign_keys=sample_id, )
-
-#     __table_args__ = (
-#                     Index('idx_sample_id_samplemeasurement', 'sample_id'),
-#                     {},
-#                     )
-#     __mapper_args__ = { 'polymorphic_identity': 'samplemeasurement' }
+    # __table_args__ = (
+    #                 Index('idx_contrast_id_differentialexpression', 'contrast_id'),
+    #                 Index('idx_sequenceregion_id_differentialexpression', 'sequenceregion_id'),
+    #                 {},
+    #                 )
 
 class SampleMeasurement(Base):
     __tablename__ = 'samplemeasurement'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    # id = Column(Integer, Identity(), primary_key=True)
     sample_id = Column(Integer, ForeignKey('sample.id'))
     sequenceregion_id = Column(Integer, ForeignKey('sequenceregion.id'))
     counts = Column(Float)
@@ -226,11 +180,11 @@ class SampleMeasurement(Base):
     sequenceregion = relationship('SequenceRegion', foreign_keys=sequenceregion_id)
 
 
-    __table_args__ = (
-                    Index('idx_sample_id_samplemeasurement', 'sample_id'),
-                    Index('idx_sequenceregion_id_samplemeasurement', 'sequenceregion_id'),
-                    {},
-                    )
+    # __table_args__ = (
+    #                 Index('idx_sample_id_samplemeasurement', 'sample_id'),
+    #                 Index('idx_sequenceregion_id_samplemeasurement', 'sequenceregion_id'),
+    #                 {},
+    #                 )
 
 
 class _Session(_SA_Session):
@@ -319,5 +273,16 @@ def upsert(session, class_type, **kwargs):
     
     return sessionmaker(bind=engine, class_=_Session)
 
-Session = sessionmaker(bind=engine, class_=_Session)
+def configure(
+            connection_str: str,
+            echo:bool=False,
+            # ) -> Tuple[sqlalchemy.orm.decl_api.DeclarativeMeta,sqlalchemy.orm.session.Session]:
+            ) -> sqlalchemy.orm.session.Session:
+    """ 
+    """
+    engine = create_engine(connection_str, echo=echo)
+    # Base.metadata.bind = engine
+    Session = sessionmaker(bind=engine, class_=_Session)
+    return Session
+    
     

@@ -7,20 +7,22 @@ import xml.etree.ElementTree as ET
 from io import StringIO
 import time
 import http
-import boto3
+import s3fs
 import anndata as ad
+import logging
+import tempfile
 
 from expression_atlas_db import settings
 
 class GTFParser:
     """
     """
-    genome_build = None
-    genome_accession = None
 
     def __init__(self, gtf_path:str, drop_duplicate_id:bool=False):
         self.gtf_path = Path(gtf_path)
         self.gtf_name = self.gtf_path.stem
+        self.genome_build = None
+        self.genome_accession = None
         self.parse_gtf(self.gtf_path, drop_duplicate_id=drop_duplicate_id)
     
     def parse_gtf(self, gtf_path:Path, drop_duplicate_id:bool=False) -> None:
@@ -135,10 +137,6 @@ class ExperimentParser:
     """
     """
 
-    _h5_params = {}
-    _s3_enabled = False
-    _client = None
-
     def __init__(
                 self, 
                 velia_study_id:str, 
@@ -147,39 +145,71 @@ class ExperimentParser:
         self.velia_study_id = velia_study_id
         self.velia_study_loc = exp_loc / velia_study_id
 
-        self._adata_gene = self.load_adata()
-        self._adata_transcript = self.load_adata()
+        self._s3_enabled = False
+        self._s3fs = None
+
+        self._transcript_ts = None
+        self._gene_ts = None
+        self._transcript_size = None
+        self._gene_size = None
+
+        # self._adata_gene = self.load_adata(adata_type='gene')
+        # self._adata_transcript = self.load_adata(adata_type='transcript')
         
-    def enable_s3(self, client:boto3.client) -> None:
+    def enable_s3(self, s3fs:s3fs.core.S3FileSystem) -> None:
         self._s3_enabled = True
-        self.client = client
+        self._s3fs = s3fs
 
     def load_adatas(self) -> None:
         """
         """
-        self._adata_gene = self.load_adata()
-        self._adata_transcript = self.load_adata(glob_pattern='*dds_transcript*')
+        self._adata_gene = self.load_adata(adata_type='gene')
+        self._adata_transcript = self.load_adata(adata_type='transcript')
 
-    def load_adata(self, glob_pattern:str='*dds_gene*') -> ad.AnnData:
+    def load_adata(self, adata_type:str='gene') -> ad.AnnData:
         """
         """
+        glob_pattern = f'*dds_{adata_type}*'
         try:
-            fh = list(Path(self.velia_study_loc / 'de_results').glob(glob_pattern))[0]
+            if not self._s3_enabled:
+                fh = list(Path(self.velia_study_loc / 'de_results').glob(glob_pattern))[0]
+            else:
+                s3_path = str(Path(self.velia_study_loc / 'de_results' / glob_pattern)).replace('s3:/','s3://')
+                fh = self._s3fs.glob(s3_path)[0]
         except IndexError:
-            raise FileNotFoundError
-        
+            raise FileNotFoundError(f'AnnData with glob pattern: {glob_pattern} not found for study {self.velia_study_loc}.')
+        if adata_type == 'transcript':
+            if not self._s3_enabled:
+                self._transcript_ts = fh.stat().st_ctime
+                self._transcript_size = fh.stat().st_size
+            else:
+                self._transcript_ts = self._s3fs.info(fh)['LastModified'].timestamp()
+                self._transcript_size = self._s3fs.info(fh)['Size']
+        else: 
+            if not self._s3_enabled:
+                self._gene_ts = fh.stat().st_ctime
+                self._gene_size = fh.stat().st_size
+            else:
+                self._gene_ts = self._s3fs.info(fh)['LastModified'].timestamp()
+                self._gene_size = self._s3fs.info(fh)['Size']
+
         if self._s3_enabled:
-            response = self._client.get_object(Bucket='', Key=fh)
-            response_data = response['Body'].read()
             with tempfile.TemporaryDirectory() as tempdir:
-                tempfile = f'{tempdir}/gene.h5ad'
-                with open(tempfile, 'wb') as f_in:
-                    f_in.write(response_data)
-                adata = ad.read_h5ad(tempfile, backed='r')
+                temp_fh = f'{tempdir}/adata.h5ad'
+                self._s3fs.get_file(fh, temp_fh)
+                adata = ad.read_h5ad(temp_fh)
         else:
             adata = ad.read_h5ad(fh, backed='r')
 
         return adata
+    
+    @property 
+    def file_timestamps(self) -> str:
+        return f'{self._gene_ts}/{self._transcript_ts}'
+    
+    @property
+    def file_sizes(self) -> str:
+        return f'{self._gene_size}/{self._transcript_size}'
     
     @property
     def samples(self) -> List[str]:
@@ -272,12 +302,13 @@ class ExperimentParser:
 class MetaDataFetcher:    
     """
     """
-    _search_sra_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?term={srp_id}&db=sra'
-    _link_sra_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?id={srp_id}&db=bioproject&dbfrom=sra'
-    _link_geo_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?term={gse_id}&db=bioproject'
-    _summary_bioproject_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?id={prj_id}&db=bioproject'
-    _bioproject_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?id={bio_id}&db=bioproject&retmode=xml'
-    _sra_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?id={srx_ids}&db=sra&rettype=runinfo&retmode=text'
+    _search_sra_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?term={id}&db=sra'
+    _link_bioproject_from_sra_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?id={id}&db=bioproject&dbfrom=sra'
+    _link_sra_from_bioproject = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?id={id}&db=sra&dbfrom=bioproject'
+    _summary_bioproject_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?id={id}&db=bioproject'
+    _search_bioproject_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?term={id}&db=bioproject&retmode=xml'
+    _fetch_bioproject_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?id={id}&db=bioproject&retmode=xml'
+    _fetch_sra_url_text = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?id={ids}&db=sra&rettype=runinfo&retmode=text'
     _ena_url = 'https://www.ebi.ac.uk/ena/portal/api/filereport?result=read_run&accession={bio_id}&fields={extra_params}'
 
     _ena_fields = [
@@ -306,17 +337,16 @@ class MetaDataFetcher:
         "sample_description",
         ]
 
-    _geo_id = None
-    _srp_id = None
-    _project_id = None
-    _project_title = None
-    _project_summary = None
-    _sra_df = None
-    _pmids = []
-
     def __init__(self, study_id:str, srx_ids:List[str]):
         self._study_id = study_id
         self._srx_ids = srx_ids
+        self._geo_id = None
+        self._srp_id = None
+        self._project_id = None
+        self._project_title = None
+        self._project_summary = None
+        self._sra_df = None
+        self._pmids = []
         self.resolve_all_ids()
     
     @property
@@ -351,12 +381,19 @@ class MetaDataFetcher:
         try:
             response = urllib.request.urlopen(url)
         except urllib.error.HTTPError as e:
-            # logging.info('')
             if 'Retry-After' in e.headers:
                 time.sleep(int(e.headers['Retry-After']))
             else:
                 time.sleep(15)
             if attempt_n > max_attempts:
+                logging.exception(e)
+                raise Exception(f'Max attempts on url: {url}')
+            attempt = attempt_n+1
+            return self.fetch_url(url, attempt_n=attempt)
+        except urllib.error.URLError:
+            time.sleep(15)
+            if attempt_n > max_attempts:
+                logging.exception(e)
                 raise Exception(f'Max attempts on url: {url}')
             attempt = attempt_n+1
             return self.fetch_url(url, attempt_n=attempt)
@@ -366,7 +403,14 @@ class MetaDataFetcher:
         """ 
         """
         try:
-            response = self.fetch_url(self._bioproject_url.format(bio_id=self._project_id)).read()
+            response = self.fetch_url(self._search_bioproject_url.format(id=self._project_id)).read()
+            tree = ET.fromstring(response)
+            project_id = tree.find('.//IdList/Id').text
+        except AttributeError as e:
+            raise e
+
+        try:
+            response = self.fetch_url(self._fetch_bioproject_url.format(id=project_id)).read()
             tree = ET.fromstring(response)
             if tree.find('.//error'):
                 raise ValueError('Cannot find project_id specified.')
@@ -402,10 +446,10 @@ class MetaDataFetcher:
         if is_sra:
             try:
                 # Need to get an SRR id from the SRP.
-                response = self.fetch_url(self._search_sra_url.format(srp_id=self._study_id)).read()
+                response = self.fetch_url(self._search_sra_url.format(id=self._study_id)).read()
                 tree = ET.fromstring(response)
                 srr_id = tree.find('.//IdList/Id').text
-                response = self.fetch_url(self._link_sra_url.format(srp_id=srr_id)).read()
+                response = self.fetch_url(self._link_bioproject_from_sra_url.format(id=srr_id)).read()
                 tree = ET.fromstring(response)
                 prj_id = tree.find('.//LinkSetDb[LinkName="sra_bioproject"]/Link/Id').text
                 if not prj_id:
@@ -417,7 +461,7 @@ class MetaDataFetcher:
 
         else:
             try:
-                response = self.fetch_url(self._link_geo_url.format(gse_id=self._study_id)).read()
+                response = self.fetch_url(self._search_bioproject_url.format(id=self._study_id)).read()
                 tree = ET.fromstring(response)
                 prj_id = tree.find('.//IdList/Id').text
                 if not prj_id:
@@ -428,7 +472,7 @@ class MetaDataFetcher:
                 raise e
             
         try:
-            response = self.fetch_url(self._summary_bioproject_url.format(prj_id=prj_id)).read()
+            response = self.fetch_url(self._summary_bioproject_url.format(id=prj_id)).read()
             tree = ET.fromstring(response)
             bioproject_id = tree.find('.//Project_Acc').text
             if not bioproject_id:
@@ -440,23 +484,28 @@ class MetaDataFetcher:
 
         return bioproject_id
 
-    def fetch_srx_info(self) -> None:
+    def fetch_srx_info(self, batch_n:int=50) -> None:
         """ 
         """
         try:
-            response = self.fetch_url(self._sra_url.format(srx_ids=','.join(self._srx_ids))).read()
-            sra_df = pd.read_csv(StringIO(response.decode()), quotechar='"', delimiter=',')
+            # Batch srx_ids into groups of batch_n.
+            sra_df = pd.DataFrame()
+            for i in range(0, len(self._srx_ids), batch_n):
+                response = self.fetch_url(self._fetch_sra_url_text.format(ids=','.join(self._srx_ids[i:i+batch_n]))).read()
+                _sra_df = pd.read_csv(StringIO(response.decode()), quotechar='"', delimiter=',')
+                sra_df = pd.concat([sra_df, _sra_df], ignore_index=True)
             if sra_df['Experiment'].unique().shape[0] != len(self._srx_ids):
                 raise ValueError('Number of srx_ids retrieved does not equal number initialized. Probably misformatted srx_id.')
         except ValueError as e:
             raise e
+
         if self._study_id.startswith('GS'):
             self._srp_id = sra_df['SRAStudy'].unique()[0]
 
         try:
             response = self.fetch_url(self._ena_url.format(bio_id=self._project_id,extra_params=','.join(self._ena_fields))).read()
             ena_df = pd.read_csv(StringIO(response.decode()), delimiter='\t')
-        except urllib.error.HTTPError as e:
+        except Exception as e:
             raise e
 
         self._sra_df = sra_df.merge(ena_df, left_on='Run', right_on='run_accession', how='left')
@@ -475,10 +524,9 @@ class MetaDataFetcher:
                 raise ValueError('Cannot define db from study_id.')
         except ValueError as e:
             raise e
-        
+
         self.fetch_bioproject_info()
         self.fetch_srx_info()
-
 
 if __name__ == '__main__':
     pass

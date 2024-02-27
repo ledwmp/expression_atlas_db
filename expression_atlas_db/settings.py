@@ -33,7 +33,7 @@ self.redshift_connection_string = ('redshift+psycopg2://%s:%s@%s' %
                                     config['DATABASE']['redshift_url'],
                                    ))
 
-# set test sqlite database connection string 
+# set sqlite database connection string 
 self.sqlite_connection_string = ('sqlite:///%s' % (config['DATABASE']['sqlite_test_database']))
 
 # set test data location
@@ -41,3 +41,12 @@ self.test_experiment_loc = config['DATA']['test_experiment_loc']
 
 # set s3 data location
 self.s3_experiment_loc = config['DATA']['s3_experiment_loc']
+
+# set test data staging location
+self.test_staging_loc = config['DATA']['test_staging_loc']
+
+# set s3 staging location 
+self.s3_staging_loc = config['DATA']['s3_staging_loc']
+
+# set redshift iam role 
+self.redshift_iam_role = config['DATA']['redshift_iam_role']
