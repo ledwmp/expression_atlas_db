@@ -143,6 +143,7 @@ def create_differentialexpression(
                 raise FileExistsError(f'Location for s3_dump {fh.parent} does not exists.')
             with s3_fs.open(str(fh).replace('s3:/','s3://'), 'w') as f_out:
                 f_out.write('\n'.join(records))
+    del records
 
 def create_samplemeasurements(
                     m_regions: np.ndarray,
@@ -199,6 +200,7 @@ def create_samplemeasurements(
                 raise FileExistsError(f'Location for s3_dump {fh.parent} does not exists.')
             with s3_fs.open(str(fh).replace('s3:/','s3://'), 'w') as f_out:
                 f_out.write('\n'.join(records))
+    del records
 
 def copy_into_redshift_table(
                             session:base._Session,
@@ -385,6 +387,86 @@ def insert_dataset(
                             s3_fs=s3,
                             fh=staging_loc / f'transcript_measurement.{study.id}.csv',
                             )
+    del gm_samples
+    del gm_regions
+    del gm_measurments
+    del tm_samples
+    del tm_regions
+    del tm_measurments
+
+def delete_study(
+            velia_study:str,
+            session:base._Session,
+            session_redshift:Union[base._Session,None]=None,
+            use_s3:bool=False,
+            use_redshift:bool=False,
+            s3:Union[s3fs.core.S3FileSystem,None]=None,
+            ) -> None:
+    """ 
+    """
+    pass
+
+def update_study(
+            velia_study:str,
+            session:base._Session,
+            session_redshift:Union[base._Session,None]=None,
+            use_s3:bool=False,
+            use_redshift:bool=False,
+            s3:Union[s3fs.core.S3FileSystem,None]=None,
+            ) -> None:
+    """ 
+    """
+    pass
+
+def add_study(
+            velia_study:str,
+            session:base._Session, 
+            session_redshift:Union[base._Session,None]=None, 
+            use_s3:bool=False,
+            use_redshift:bool=False,
+            s3:Union[s3fs.core.S3FileSystem,None]=None,
+            ) -> None:
+    """ 
+    """
+
+    logging.info(f'Parsing: {velia_study}.')
+    exp = ExperimentParser(velia_study, Path(settings.s3_experiment_loc if use_s3 else settings.test_experiment_loc))
+    if use_s3:
+        exp.enable_s3(s3)
+    exp.load_adatas()
+    logging.info(f'Fetching metadata: {velia_study}.')
+    meta = MetaDataFetcher(velia_study, exp.samples)
+    logging.info(f'Inserting datasets: {velia_study}.')
+    insert_dataset(
+                session, 
+                meta, 
+                exp, 
+                s3=s3, 
+                staging_loc=Path(settings.s3_staging_loc if use_s3 else settings.test_staging_loc),
+                )
+    if use_redshift:
+        study_id = [*session.query(base.Study.id).filter(base.Study.velia_id == velia_study).all()][0]
+        contrast_ids = [*session.query(base.Contrast.id).filter(base.Contrast.study.has(velia_id=velia_study))]
+
+        for m in ('gene', 'transcript'):
+            copy_into_redshift_table(
+                                session_redshift,
+                                base.Base.metadata.tables['samplemeasurement'],
+                                Path(settings.s3_staging_loc) / f'{m}_measurement.{study_id[0]}.csv',
+                                )
+            for c in contrast_ids:
+                copy_into_redshift_table(
+                                session_redshift,
+                                base.Base.metadata.tables['differentialexpression'],
+                                Path(settings.s3_staging_loc) / f'{m}_de.{study_id[0]}.{c[0]}.csv',
+                                )   
+    # Will need to find a way to catch issues in one database and rollback issues in the other database.
+    session.commit()
+    if use_redshift:
+        session_redshift.commit()
+    
+    del exp
+    del meta
 
 def add_studies(use_reshift:bool=False, use_s3:bool=False) -> None:
     """ 
@@ -402,12 +484,38 @@ def add_studies(use_reshift:bool=False, use_s3:bool=False) -> None:
 
     s3 = s3fs.S3FileSystem() if use_s3 else None
     if use_s3:
-        velia_ids = [Path(f).parts[-2] for f in s3.glob(str(Path(settings.s3_experiment_loc,'./*/de_results/')).replace('s3:/','s3://'))]
+        velia_studies = [Path(f).parts[-2] for f in s3.glob(str(Path(settings.s3_experiment_loc,'./*/de_results/')).replace('s3:/','s3://'))]
     else:
         velia_ids = [p for p in Path(settings.test_experiment_loc).iterdir() if p.is_dir()]
+
+    logging.info(f'Found {len(velia_ids)} at {settings.s3_experiment_loc if use_s3 else settings.test_experiment_loc}.')
+
+    existing_studies = [e for (e,) in session.query(base.Study.velia_id)]
+
+    logging.info(f'Found {len(existing_studies)} already populated in database.')
+
+    for e in set(velia_ids).intersection(existing_studies):
+        logging.info(f'Skipping: {e} already exists in database.')
     
-    for e in velia_ids:
-        pass
+    for e in set(velia_ids).difference(existing_studies):
+
+        try:
+            add_study(
+                    e,
+                    session,
+                    session_redshift=session_redshift if use_redshift else None,
+                    use_s3=use_s3,
+                    use_redshift=use_redshift,
+                    s3=s3 if use_s3 else None,
+                    )
+        except Exception as e:
+            logging.exception(e)
+            session.rollback()
+            if use_redshift:
+                session_redshift.rollback()
+    session.close()
+    if use_redshift:
+        session_redshift.close()
 
 # @click.command()
 # @click.option('--drop-all', is_flag=True, help='Empty database and reload data.')
@@ -472,47 +580,21 @@ def load_db(gtf:str, drop_all:bool=False, drop_dataset:bool=False, use_redshift:
     
     s3 = s3fs.S3FileSystem() if use_s3 else None
     if use_s3:
-        velia_ids = [Path(f).parts[-2] for f in s3.glob(str(Path(settings.s3_experiment_loc,'./*/de_results/')).replace('s3:/','s3://'))]
+        velia_studies = [Path(f).parts[-2] for f in s3.glob(str(Path(settings.s3_experiment_loc,'./*/de_results/')).replace('s3:/','s3://'))]
     else:
-        velia_ids = [p for p in Path(settings.test_experiment_loc).iterdir() if p.is_dir()]
+        velia_studies = [p for p in Path(settings.test_experiment_loc).iterdir() if p.is_dir()]
 
-    logging.info(f'Loading {len(velia_ids)} studies into expression_atlas_db.')
-    for e in velia_ids:
+    logging.info(f'Loading {len(velia_studies)} studies into expression_atlas_db.')
+    for e in velia_studies:
         try:
-            logging.info(f'Parsing: {e}.')
-            exp = ExperimentParser(e, Path(settings.s3_experiment_loc if use_s3 else settings.test_experiment_loc))
-            if use_s3:
-                exp.enable_s3(s3)
-            exp.load_adatas()
-            logging.info(f'Fetching metadata: {e}.')
-            meta = MetaDataFetcher(e, exp.samples)
-            logging.info(f'Inserting datasets: {e}.')
-            insert_dataset(
-                        session, 
-                        meta, 
-                        exp, 
-                        s3=s3, 
-                        staging_loc=Path(settings.s3_staging_loc if use_s3 else settings.test_staging_loc),
-                        )
-            if use_redshift:
-                study_id = [*session.query(base.Study.id).filter(base.Study.velia_id == e).all()][0]
-                contrast_ids = [*session.query(base.Contrast.id).filter(base.Contrast.study.has(velia_id=e))]
-
-                for m in ('gene', 'transcript'):
-                    copy_into_redshift_table(
-                                        session_redshift,
-                                        base.Base.metadata.tables['samplemeasurement'],
-                                        Path(settings.s3_staging_loc) / f'{m}_measurement.{study_id[0]}.csv',
-                                        )
-                    for c in contrast_ids:
-                        copy_into_redshift_table(
-                                        session_redshift,
-                                        base.Base.metadata.tables['differentialexpression'],
-                                        Path(settings.s3_staging_loc) / f'{m}_de.{study_id[0]}.{c[0]}.csv',
-                                        )   
-            session.commit()
-            if use_redshift:
-                session_redshift.commit()
+            add_study(
+                    e,
+                    session,
+                    session_redshift=session_redshift if use_redshift else None,
+                    use_s3=use_s3,
+                    use_redshift=use_redshift,
+                    s3=s3 if use_s3 else None,
+                    )
         except Exception as e:
             logging.exception(e)
             session.rollback()
@@ -524,4 +606,4 @@ def load_db(gtf:str, drop_all:bool=False, drop_dataset:bool=False, use_redshift:
     
 
 if __name__ == '__main__':
-    load_db.load_db('../../veliadb_v0c.gtf', drop_all=False, drop_dataset=True, use_redshift=True, use_s3=True)
+    load_db('../../veliadb_v0c.gtf', drop_all=False, drop_dataset=True, use_redshift=True, use_s3=True)
