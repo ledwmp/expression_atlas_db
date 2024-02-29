@@ -27,8 +27,8 @@ logger = logging.getLogger("alembic.env")
 db_names = 'postgres, redshift'
 
 db_urls = {
-        'postgres':settings.db_connection_string,
-        'redshift':settings.redshift_connection_string,
+        'postgres':settings.db_dev_connection_string,
+        'redshift':settings.redshift_dev_connection_string,
         }
 
 # add your model's MetaData objects here

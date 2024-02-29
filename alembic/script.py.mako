@@ -14,7 +14,7 @@ from alembic import op
 import sqlalchemy as sa
 ${imports if imports else ""}
 
-from expression_atlas_db import base
+from expression_atlas_db import base, load_db
 
 # revision identifiers, used by Alembic.
 revision: str = ${repr(up_revision)}
