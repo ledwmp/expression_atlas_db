@@ -153,12 +153,81 @@ class ExperimentParser:
         self._gene_ts = None
         self._transcript_size = None
         self._gene_size = None
+
+    @property 
+    def file_timestamps(self) -> str:
+        return f'{self._gene_ts}/{self._transcript_ts}'
+    
+    @property
+    def file_sizes(self) -> str:
+        return f'{self._gene_size}/{self._transcript_size}'
+    
+    @property
+    def samples(self) -> List[str]:
+        """
+        """
+        if not self._adata_transcript or not self._adata_gene:
+            raise AttributeError('Set adatas with load_adatas method.')
+
+        if (self._adata_gene.obs.index.values != self._adata_transcript.obs.index.values).all():
+            raise ValueError('Study gene/transcript adatas have different samples or misordered samples.')
+        
+        return self._adata_gene.obs.index.to_list()
+
+    @property 
+    def samples_metadata(self) -> pd.DataFrame:
+        """ 
+        """
+        if not self._adata_transcript or not self._adata_gene:
+            raise AttributeError('Set adatas with load_adatas method.')
+
+        if (self._adata_gene.obs.index.values != self._adata_transcript.obs.index.values).all():
+            raise ValueError('Study gene/transcript adatas have different samples or misordered samples.')
+        
+        meta = self._adata_gene.obs.copy()
+        meta[meta.columns[meta.dtypes == 'category']] = meta[meta.columns[meta.dtypes == 'category']].astype(object)
+
+        return meta
         
     def enable_s3(self, s3fs:s3fs.core.S3FileSystem) -> None:
         """ 
         """
         self._s3_enabled = True
         self._s3fs = s3fs
+
+    def stat_adatas(self) -> None:
+        """
+        """
+        self.stat_adata(glob_pattern='*dds_gene*')
+        self.stat_adata(glob_pattern='*dds_transcript*')
+
+    def stat_adata(self, glob_pattern:str) -> Union[str,pathlib.PosixPath]:
+        """ 
+        """
+        try:
+            if not self._s3_enabled:
+                fh = list(Path(self.velia_study_loc / 'de_results').glob(glob_pattern))[0]
+            else:
+                s3_path = str(Path(self.velia_study_loc / 'de_results' / glob_pattern)).replace('s3:/','s3://')
+                fh = self._s3fs.glob(s3_path)[0]
+        except IndexError:
+            raise FileNotFoundError(f'AnnData with glob pattern: {glob_pattern} not found for study {self.velia_study_loc}.')
+        if adata_type == 'transcript':
+            if not self._s3_enabled:
+                self._transcript_ts = fh.stat().st_ctime
+                self._transcript_size = fh.stat().st_size
+            else:
+                self._transcript_ts = self._s3fs.info(fh)['LastModified'].timestamp()
+                self._transcript_size = self._s3fs.info(fh)['Size']
+        else: 
+            if not self._s3_enabled:
+                self._gene_ts = fh.stat().st_ctime
+                self._gene_size = fh.stat().st_size
+            else:
+                self._gene_ts = self._s3fs.info(fh)['LastModified'].timestamp()
+                self._gene_size = self._s3fs.info(fh)['Size']
+
+        return fh
 
     def load_adatas(self) -> None:
         """
@@ -202,41 +271,6 @@ class ExperimentParser:
             adata = ad.read_h5ad(fh, backed='r')
 
         return adata
-    
-    @property 
-    def file_timestamps(self) -> str:
-        return f'{self._gene_ts}/{self._transcript_ts}'
-    
-    @property
-    def file_sizes(self) -> str:
-        return f'{self._gene_size}/{self._transcript_size}'
-    
-    @property
-    def samples(self) -> List[str]:
-        """
-        """
-        if not self._adata_transcript or not self._adata_gene:
-            raise AttributeError('Set adatas with load_adatas method.')
-
-        if (self._adata_gene.obs.index.values != self._adata_transcript.obs.index.values).all():
-            raise ValueError('Study gene/transcript adatas have different samples or misordered samples.')
-        
-        return self._adata_gene.obs.index.to_list()
-
-    @property 
-    def samples_metadata(self) -> pd.DataFrame:
-        """ 
-        """
-        if not self._adata_transcript or not self._adata_gene:
-            raise AttributeError('Set adatas with load_adatas method.')
-
-        if (self._adata_gene.obs.index.values != self._adata_transcript.obs.index.values).all():
-            raise ValueError('Study gene/transcript adatas have different samples or misordered samples.')
-        
-        meta = self._adata_gene.obs.copy()
-        meta[meta.columns[meta.dtypes == 'category']] = meta[meta.columns[meta.dtypes == 'category']].astype(object)
-
-        return meta
 
     def prepare_differentialexpression(
                 self,
@@ -332,7 +366,7 @@ class ExperimentParser:
                 measurements
 
 class MetaDataFetcher:    
-    """
+    """TODO: Clean up exception handling and generally refactor this class.
     """
     _search_sra_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?term={id}&db=sra'
     _link_bioproject_from_sra_url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?id={id}&db=bioproject&dbfrom=sra'
@@ -429,6 +463,57 @@ class MetaDataFetcher:
             return self.fetch_url(url, attempt_n=attempt)
         return response
 
+    def resolve_all_ids(self) -> None:
+        """
+        """
+        if self._study_id.startswith('GS'):
+            self._geo_id = self._study_id
+            self._project_id = self.link_project_id(is_sra=False)
+        elif any(map(lambda x: self._study_id.startswith(x), ('ER','SR','DR',))):
+            self._srp_id = self._study_id
+            self._project_id = self.link_project_id(is_sra=True)
+        else:
+            raise ValueError('Cannot define db from study_id.')
+
+        self.fetch_bioproject_info()
+        self.fetch_srx_info()
+
+    def link_project_id(self, is_sra:bool=True) -> str:
+        """ 
+        """
+        if is_sra:
+            try:
+                # Need to get an SRR id from the SRP.
+                response = self.fetch_url(self._search_sra_url.format(id=self._study_id)).read()
+                tree = ET.fromstring(response)
+                srr_id = tree.find('.//IdList/Id').text
+                response = self.fetch_url(self._link_bioproject_from_sra_url.format(id=srr_id)).read()
+                tree = ET.fromstring(response)
+                prj_id = tree.find('.//LinkSetDb[LinkName="sra_bioproject"]/Link/Id').text
+                if not prj_id:
+                    raise ValueError('Unable to find project_id in bioprojects.')
+            except Exception as e:
+                raise Exception('Unable to link sra_id to bioproject id.') from e
+        else:
+            try:
+                response = self.fetch_url(self._search_bioproject_url.format(id=self._study_id)).read()
+                tree = ET.fromstring(response)
+                prj_id = tree.find('.//IdList/Id').text
+                if not prj_id:
+                    raise ValueError('Unable to find project_id in bioprojects.')
+            except Exception as e:
+                raise Exception('Unable to link geo_id to bioproject id.') from e            
+        try:
+            response = self.fetch_url(self._summary_bioproject_url.format(id=prj_id)).read()
+            tree = ET.fromstring(response)
+            bioproject_id = tree.find('.//Project_Acc').text
+            if not bioproject_id:
+                raise ValueError('Unable to find bioproject summary from bioproject id.')
+        except Exception as e:
+            raise Exception('Unable to find bioproject accession from bioproject id.') from e          
+
+        return bioproject_id
+
     def fetch_bioproject_info(self) -> None:
         """ 
         """
@@ -467,42 +552,6 @@ class MetaDataFetcher:
                 self._pmids.append(pmid.text)
         except Exception as e:
             logging.exception('Unable to find pubmed ids attached to bioproject record.', e)
-    
-    def link_project_id(self, is_sra:bool=True) -> str:
-        """ 
-        """
-        if is_sra:
-            try:
-                # Need to get an SRR id from the SRP.
-                response = self.fetch_url(self._search_sra_url.format(id=self._study_id)).read()
-                tree = ET.fromstring(response)
-                srr_id = tree.find('.//IdList/Id').text
-                response = self.fetch_url(self._link_bioproject_from_sra_url.format(id=srr_id)).read()
-                tree = ET.fromstring(response)
-                prj_id = tree.find('.//LinkSetDb[LinkName="sra_bioproject"]/Link/Id').text
-                if not prj_id:
-                    raise ValueError('Unable to find project_id in bioprojects.')
-            except Exception as e:
-                raise Exception('Unable to link sra_id to bioproject id.') from e
-        else:
-            try:
-                response = self.fetch_url(self._search_bioproject_url.format(id=self._study_id)).read()
-                tree = ET.fromstring(response)
-                prj_id = tree.find('.//IdList/Id').text
-                if not prj_id:
-                    raise ValueError('Unable to find project_id in bioprojects.')
-            except Exception as e:
-                raise Exception('Unable to link geo_id to bioproject id.') from e            
-        try:
-            response = self.fetch_url(self._summary_bioproject_url.format(id=prj_id)).read()
-            tree = ET.fromstring(response)
-            bioproject_id = tree.find('.//Project_Acc').text
-            if not bioproject_id:
-                raise ValueError('Unable to find bioproject summary from bioproject id.')
-        except Exception as e:
-            raise Exception('Unable to find bioproject accession from bioproject id.') from e          
-
-        return bioproject_id
 
     def fetch_srx_info(self, batch_n:int=50) -> None:
         """ 
@@ -526,21 +575,6 @@ class MetaDataFetcher:
             raise Exception('Unable to fetch data from ena given project id.') from e
 
         self._sra_df = sra_df.merge(ena_df, left_on='Run', right_on='run_accession', how='left')
-        
-    def resolve_all_ids(self) -> None:
-        """
-        """
-        if self._study_id.startswith('GS'):
-            self._geo_id = self._study_id
-            self._project_id = self.link_project_id(is_sra=False)
-        elif any(map(lambda x: self._study_id.startswith(x), ('ER','SR','DR',))):
-            self._srp_id = self._study_id
-            self._project_id = self.link_project_id(is_sra=True)
-        else:
-            raise ValueError('Cannot define db from study_id.')
-
-        self.fetch_bioproject_info()
-        self.fetch_srx_info()
 
 if __name__ == '__main__':
     pass

@@ -93,7 +93,6 @@ def create_differentialexpression(
                     contrast: base.Contrast,
                     batch_columns:int=10000,
                     bulk_insert:bool=False,
-                    s3_dump:bool=False,
                     session: Union[base._Session,None]=None,
                     de_columns:List[str]=[c.name for c in base.DifferentialExpression.__table__.columns \
                                                         if not c.primary_key and len(c.foreign_keys) == 0],
@@ -116,7 +115,7 @@ def create_differentialexpression(
     """
     if bulk_insert and not session:
         raise ValueError('Need to provide a session if using bulk insert.')
-    if s3_dump and not (s3_fs and fh):
+    if isinstance(s3, s3fs.S3FileSystem) and not fh:
         raise ValueError('Need to pass in s3fs object and s3 location if using s3 dump.')
     if not bulk_insert and not fh:
         raise ValueError('Need to pass in fh location if using local dump.')
@@ -134,7 +133,7 @@ def create_differentialexpression(
     else:
         records = [','.join(map(lambda x: str(x), [contrast.id, sequenceregions[i].id, *[r[c] for c in de_columns]])) for i, r in de_df.iterrows()]
         logging.info(f'Adding de measurements from study {study.velia_id} to csv at {fh}.')
-        if not s3_dump:
+        if not isinstance(s3, s3fs.S3FileSystem):
             with open(fh, 'w') as f_out:
                 f_out.write('\n'.join(records))
         else:
@@ -154,7 +153,6 @@ def create_samplemeasurements(
                     samples: Dict[str,base.Sample],
                     batch_columns:int=10000,
                     bulk_insert:bool=False,
-                    s3_dump:bool=False,
                     session: Union[base._Session,None]=None,
                     measurement_columns:List[str]=[c.name for c in base.SampleMeasurement.__table__.columns \
                                                             if not c.primary_key and len(c.foreign_keys) == 0],
@@ -173,7 +171,7 @@ def create_samplemeasurements(
     """
     if bulk_insert and not session:
         raise ValueError('Need to provide a session if using bulk insert.')
-    if s3_dump and not (s3_fs and fh):
+    if isinstance(s3_fs, s3fs.S3FileSystem) and not fh:
         raise ValueError('Need to pass in s3fs object and s3 location if using s3 dump.')
     if not bulk_insert and not fh:
         raise ValueError('Need to pass in fh location if using local dump.')
@@ -191,7 +189,7 @@ def create_samplemeasurements(
     else:
         records = [','.join(map(lambda x: str(x), [samples[s].id, sequenceregions[i].id, *a])) for i,s,a in zip(m_regions, m_samples, m_measurements)]
         logging.info(f'Adding sample measurements from study {study.velia_id} to csv at {fh}.')
-        if not s3_dump:
+        if not isinstance(s3_fs, s3fs.S3FileSystem):
             with open(fh, 'w') as f_out:
                 f_out.write('\n'.join(records))
         else:
@@ -224,7 +222,7 @@ def copy_into_redshift_table(
         logging.info(f'Copying table {s3_staging_loc} into {table.name}.')
         session.execute(s3_copy_command)
     except Exception as e:
-        logging.exception(e)
+        raise Exception('Unable to copy data into redshift.') from e
 
 def insert_dataset(
                 session: base._Session, 
@@ -311,7 +309,7 @@ def insert_dataset(
         session.add(contrast)
 
         logging.info(f'Adding left samplecontrasts from contrast {c} from study {study.velia_id}.')
-        left_samples = session.query(base.Sample).filter(base.Sample.srx_id.in_(c_left)).all()
+        left_samples = session.query(base.Sample).filter(base.Sample.srx_id.in_(c_left))
         left_sample_contrasts = [base.SampleContrast(
                                                 sample=s, 
                                                 contrast_side='left', 
@@ -323,7 +321,7 @@ def insert_dataset(
                                                 ) for s in left_samples]
 
         logging.info(f'Adding right samplecontrasts from contrast {c} from study {study.velia_id}.')
-        right_samples = session.query(base.Sample).filter(base.Sample.srx_id.in_(c_right)).all()
+        right_samples = session.query(base.Sample).filter(base.Sample.srx_id.in_(c_right))
         right_sample_contrasts = [base.SampleContrast(
                                                 sample=s, 
                                                 contrast_side='right', 
@@ -335,19 +333,16 @@ def insert_dataset(
                                                 ) for s in right_samples]
         session.add_all(left_sample_contrasts+right_sample_contrasts)
         
-        # create_differentialexpression(c_df, sequenceregions, study, contrast, fh=f'{study.id}.{contrast.id}.gene_de.csv')
         create_differentialexpression(
                                     c_df, 
                                     sequenceregions, 
                                     study, 
                                     contrast, 
-                                    s3_dump=True, 
                                     s3_fs=s3, 
                                     fh=staging_loc / f'gene_de.{study.id}.{contrast.id}.csv',
                                     )
 
     samples = {s.srx_id:s for s in session.query(base.Sample).filter(base.Sample.srx_id.in_(np.unique(gm_samples)))}
-    # create_samplemeasurements(gm_regions, gm_samples, gm_measurments, sequenceregions, study, samples, fh=f'{study.id}.gene_measurment.csv')
     create_samplemeasurements(
                             gm_regions, 
                             gm_samples, 
@@ -355,7 +350,6 @@ def insert_dataset(
                             sequenceregions, 
                             study, 
                             samples, 
-                            s3_dump=True, 
                             s3_fs=s3,
                             fh=staging_loc / f'gene_measurement.{study.id}.csv',
                             )
@@ -369,13 +363,11 @@ def insert_dataset(
                                     sequenceregions, 
                                     study, 
                                     contrast, 
-                                    s3_dump=True, 
                                     s3_fs=s3, 
                                     fh=staging_loc / f'transcript_de.{study.id}.{contrast.id}.csv',
                                     )
         
     samples = {s.srx_id:s for s in session.query(base.Sample).filter(base.Sample.srx_id.in_(np.unique(tm_samples)))}
-    # create_samplemeasurements(tm_regions, tm_samples, tm_measurments, sequenceregions, study, samples, fh=f'{study.id}.transcript_measurment.csv')
     create_samplemeasurements(
                             tm_regions, 
                             tm_samples, 
@@ -383,7 +375,6 @@ def insert_dataset(
                             sequenceregions, 
                             study, 
                             samples, 
-                            s3_dump=True, 
                             s3_fs=s3,
                             fh=staging_loc / f'transcript_measurement.{study.id}.csv',
                             )
@@ -427,6 +418,13 @@ def add_study(
             s3:Union[s3fs.core.S3FileSystem,None]=None,
             ) -> None:
     """ 
+    Args:
+        velia_study (str)
+        session (base._Session)
+        session_redshift (Union[base._Session,None])
+        use_s3 (bool)
+        use_redshift (bool)
+        s3 (Union[s3fs.core.s3FileSystem,None])
     """
 
     logging.info(f'Parsing: {velia_study}.')
@@ -445,7 +443,7 @@ def add_study(
                 staging_loc=Path(settings.s3_staging_loc if use_s3 else settings.test_staging_loc),
                 )
     if use_redshift:
-        study_id = [*session.query(base.Study.id).filter(base.Study.velia_id == velia_study).all()][0]
+        study_id = [*session.query(base.Study.id).filter(base.Study.velia_id == velia_study)][0]
         contrast_ids = [*session.query(base.Contrast.id).filter(base.Contrast.study.has(velia_id=velia_study))]
 
         for m in ('gene', 'transcript'):

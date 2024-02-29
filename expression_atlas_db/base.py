@@ -103,16 +103,12 @@ class Contrast(DataSet):
     id = Column(Integer, ForeignKey('dataset.id'), primary_key=True)
     study_id = Column(Integer, ForeignKey('study.id'))
     contrast_name = Column(String(200), nullable=False)
-
-    # Look into changing these three columns to list types.
     sample_condition_key = Column(String(200))
     left_condition_level = Column(String(200))
     right_condition_level = Column(String(200))
-
     left_condition_display = Column(String(200))
     right_condition_display = Column(String(200))
     study = relationship('Study', foreign_keys=study_id)
-
 
     __table_args__ = (UniqueConstraint('study_id','contrast_name',),{})
     __mapper_args__ = { 'polymorphic_identity': 'contrast' }
@@ -125,17 +121,13 @@ class SampleContrast(DataSet):
     sample_id = Column(Integer, ForeignKey('sample.id'))
     contrast_id = Column(Integer, ForeignKey('contrast.id'))
     study_id = Column(Integer, ForeignKey('study.id'))
-
-    # Look into changing these two levels into list types.
     sample_condition_key = Column(String(200))
     condition_level = Column(String(200))
-
     condition_display = Column(String(200))
     contrast_side = Column(String(10))
     sample = relationship('Sample', foreign_keys=sample_id, )
     contrast = relationship('Contrast', foreign_keys=contrast_id, )
     study = relationship('Study', foreign_keys=study_id)
-
 
     __table_args__ = (UniqueConstraint('sample_id','contrast_id'),{})
     __mapper_args__ = { 'polymorphic_identity': 'samplecontrast' }
@@ -218,7 +210,7 @@ class _Session(_SA_Session):
 
 
     def __repr__(self):
-        return "VeliaDB session %d" % (self.__hash__())
+        return "ExpressionAtlasDB session %d" % (self.__hash__())
 
 
 def get_or_create(session, class_type, **kwargs):
@@ -289,17 +281,15 @@ def upsert(session, class_type, **kwargs):
     
     result = session.query(class_type).filter_by(**{k: kwargs[k] for k in unique_cols}).first()
     
-    return sessionmaker(bind=engine, class_=_Session)
+    return result
 
 def configure(
             connection_str: str,
             echo:bool=False,
-            # ) -> Tuple[sqlalchemy.orm.decl_api.DeclarativeMeta,sqlalchemy.orm.session.Session]:
             ) -> sqlalchemy.orm.session.Session:
     """ 
     """
     engine = create_engine(connection_str, echo=echo)
-    # Base.metadata.bind = engine
     Session = sessionmaker(bind=engine, class_=_Session)
     return Session
     
