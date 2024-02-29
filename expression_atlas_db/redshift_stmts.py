@@ -1,10 +1,22 @@
 from expression_atlas_db import base
 
-delete_stmt_all = '\n'.join([f'DROP TABLE if exists {t};' for t in base.Base.metadata.tables.keys()])
-delete_stmt_sequenceregion = '\n'.join([f'DROP TABLE if exists {t};' for t in list(base.Base.metadata.tables.keys())[::-1] \
-                                                    if t in ('sequenceregion','gene','transcript')])
-delete_stmt_dataset = '\n'.join([f'DROP TABLE if exists {t};' for t in list(base.Base.metadata.tables.keys())[::-1] \
-                                                    if t not in ('sequenceregion','gene','transcript')])
+delete_stmt_all = "\n".join(
+    [f"DROP TABLE if exists {t};" for t in base.Base.metadata.tables.keys()]
+)
+delete_stmt_sequenceregion = "\n".join(
+    [
+        f"DROP TABLE if exists {t};"
+        for t in list(base.Base.metadata.tables.keys())[::-1]
+        if t in ("sequenceregion", "gene", "transcript")
+    ]
+)
+delete_stmt_dataset = "\n".join(
+    [
+        f"DROP TABLE if exists {t};"
+        for t in list(base.Base.metadata.tables.keys())[::-1]
+        if t not in ("sequenceregion", "gene", "transcript")
+    ]
+)
 
 create_stmt_measurement = """CREATE TABLE IF NOT EXISTS differentialexpression (
 	id INTEGER NOT NULL IDENTITY(1,1), 
