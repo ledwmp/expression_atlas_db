@@ -1,14 +1,16 @@
 import pandas as pd
 import numpy as np
-from typing import List, Union, Dict, Tuple
+from typing import List, Union, Dict, Tuple, Callable
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from expression_atlas_db import base
 
 
 def unpack_fields(
-    fields: Dict, keep: Union[List[str], Callable, None] = None
+    fields: Dict,
+    keep: Union[List[str], Callable, None] = lambda x: x.startswith("sample_condition")
+    | x.startswith("sample_type"),
 ) -> pd.Series:
     """ """
     if callable(keep):
@@ -38,6 +40,40 @@ def fetch_contrasts(
     contrasts_df = pd.read_sql(query, session.bind)
 
     return contrasts_df
+
+
+def fetch_sequenceregions(
+    session: base._Session,
+    sequenceregions: Union[List[str], None] = None,
+    sequenceregions_type: Union[str, None] = None,
+) -> pd.DataFrame:
+
+    transcript_query = select(base.Transcript)
+    gene_query = select(base.Gene)
+
+    if sequenceregions:
+        transcript_query = transcript_query.filter(
+            base.Transcript.transcript_id.in_(sequenceregions)
+        )
+        gene_query = gene_query.filter(base.Gene.gene_id.in_(sequenceregions))
+
+    transcript_sequenceregions_df = pd.read_sql(transcript_query, session.bind)
+    transcript_sequenceregions_df.drop("gene_id", inplace=True, axis=1)
+    gene_sequenceregions_df = pd.read_sql(gene_query, session.bind)
+
+    sequenceregions_df = pd.concat(
+        [transcript_sequenceregions_df, gene_sequenceregions_df], axis=0
+    )
+    sequenceregions_df.set_index("id", inplace=True)
+
+    if sequenceregions_type == "transcript":
+        sequenceregions_df = sequenceregions_df[
+            ~sequenceregions_df["transcript_id"].isna()
+        ]
+    elif sequenceregions_type == "gene":
+        sequenceregions_df = sequenceregions_df[~sequenceregions_df["gene_id"].isna()]
+
+    return sequenceregions_df
 
 
 def fetch_samplecontrasts(
@@ -121,16 +157,21 @@ def fetch_samples(
 def query_differentialexpression(
     session: base._Session,
     session_redshift: base._Session,
-    studies: List[str],
+    studies: Union[List[str], None] = None,
     contrasts: Union[List[str], None] = None,
     sequenceregions: Union[List[str], None] = None,
+    sequenceregions_type: Union[str, None] = None,
+    log10_padj_threshold: Union[float, None] = 0.5,
+    log2_fc_threshold: Union[float, None] = np.log2(2.0),
+    mean_threshold: Union[float, None] = 4.0,
 ) -> pd.DataFrame:
     """ """
-    studies_query = (
-        select(base.Contrast, base.Study.velia_id)
-        .join(base.Study, base.Contrast.study_id == base.Study.id)
-        .filter(base.Study.velia_id.in_(studies))
+    studies_query = select(base.Contrast, base.Study.velia_id).join(
+        base.Study, base.Contrast.study_id == base.Study.id
     )
+
+    if studies:
+        studies_query = studies_query.filter(base.Study.velia_id.in_(studies))
 
     if contrasts:
         studies_query = studies_query.filter(base.Contrast.contrast_name.in_(contrasts))
@@ -138,27 +179,52 @@ def query_differentialexpression(
     studies_df = pd.read_sql(studies_query, session.bind)
     studies_df.set_index("id", inplace=True)
 
-    transcript_query = select(base.Transcript)
-    gene_query = select(base.Gene)
-    if sequenceregions:
-        transcript_query = transcript_query.filter(
-            base.Transcript.transcript_id.in_(sequenceregions)
-        )
-        gene_query = gene_query.filter(base.Gene.gene_id.in_(sequenceregions))
+    # transcript_query = select(base.Transcript)
+    # gene_query = select(base.Gene)
+    # if sequenceregions:
+    #     transcript_query = transcript_query.filter(
+    #         base.Transcript.transcript_id.in_(sequenceregions)
+    #     )
+    #     gene_query = gene_query.filter(base.Gene.gene_id.in_(sequenceregions))
 
-    transcript_sequenceregions_df = pd.read_sql(transcript_query, session.bind)
-    transcript_sequenceregions_df.drop("gene_id", inplace=True, axis=1)
-    gene_sequenceregions_df = pd.read_sql(gene_query, session.bind)
+    # transcript_sequenceregions_df = pd.read_sql(transcript_query, session.bind)
+    # transcript_sequenceregions_df.drop("gene_id", inplace=True, axis=1)
+    # gene_sequenceregions_df = pd.read_sql(gene_query, session.bind)
 
-    sequenceregions_df = pd.concat(
-        [transcript_sequenceregions_df, gene_sequenceregions_df], axis=0
+    # sequenceregions_df = pd.concat(
+    #     [transcript_sequenceregions_df, gene_sequenceregions_df], axis=0
+    # )
+    # sequenceregions_df.set_index("id", inplace=True)
+    sequenceregions_df = fetch_sequenceregions(
+        session,
+        sequenceregions=sequenceregions,
+        sequenceregions_type=sequenceregions_type,
     )
-    sequenceregions_df.set_index("id", inplace=True)
 
     differentialexpression_query = select(base.DifferentialExpression).filter(
-        base.DifferentialExpression.sequenceregion_id.in_(sequenceregions_df.index)
-        & base.DifferentialExpression.contrast_id.in_(studies_df.index)
+        base.DifferentialExpression.contrast_id.in_(studies_df.index)
     )
+
+    if sequenceregions:
+        differentialexpression_query = differentialexpression_query.filter(
+            base.DifferentialExpression.sequenceregion_id.in_(sequenceregions_df.index)
+        )
+
+    if log10_padj_threshold:
+        differentialexpression_query = differentialexpression_query.filter(
+            base.DifferentialExpression.log10_padj >= log10_padj_threshold
+        )
+
+    if mean_threshold:
+        differentialexpression_query = differentialexpression_query.filter(
+            (base.DifferentialExpression.case_mean >= mean_threshold)
+            | (base.DifferentialExpression.control_mean >= mean_threshold)
+        )
+
+    if log2_fc_threshold:
+        differentialexpression_query = differentialexpression_query.filter(
+            func.abs(base.DifferentialExpression.log2foldchange) >= log2_fc_threshold
+        )
 
     differentialexpression_df = pd.read_sql(
         differentialexpression_query, session_redshift.bind
@@ -167,10 +233,12 @@ def query_differentialexpression(
         studies_df[["velia_id", "contrast_name"]],
         left_on="contrast_id",
         right_index=True,
+        how="left",
     ).merge(
         sequenceregions_df[["transcript_id", "gene_id", "type"]],
         left_on="sequenceregion_id",
         right_index=True,
+        how="left",
     )
 
     differentialexpression_df = differentialexpression_df.loc[
@@ -187,17 +255,18 @@ def query_differentialexpression(
 def query_samplemeasurement(
     session: base._Session,
     session_redshift: base._Session,
-    studies: List[str],
+    studies: Union[List[str], None] = None,
     contrasts: Union[List[str], None] = None,
     samples: Union[List[str], None] = None,
     sequenceregions: Union[List[str], None] = None,
+    sequenceregions_type: Union[str, None] = None,
 ) -> pd.DataFrame:
     """ """
-    samples_query = (
-        select(base.Sample, base.Study.velia_id)
-        .join(base.Sample, base.Sample.study_id == base.Study.id)
-        .filter(base.Study.velia_id.in_(studies))
+    samples_query = select(base.Sample, base.Study.velia_id).join(
+        base.Sample, base.Sample.study_id == base.Study.id
     )
+    if studies:
+        samples_query = samples_query.filter(base.Study.velia_id.in_(studies))
 
     if samples:
         samples_query = samples_query.filter(base.Sample.srx_id.in_(samples))
@@ -226,27 +295,37 @@ def query_samplemeasurement(
     samples_df = pd.read_sql(samples_query, session.bind)
     samples_df.set_index("id", inplace=True)
 
-    transcript_query = select(base.Transcript)
-    gene_query = select(base.Gene)
-    if sequenceregions:
-        transcript_query = transcript_query.filter(
-            base.Transcript.transcript_id.in_(sequenceregions)
-        )
-        gene_query = gene_query.filter(base.Gene.gene_id.in_(sequenceregions))
+    # transcript_query = select(base.Transcript)
+    # gene_query = select(base.Gene)
+    # if sequenceregions:
+    #     transcript_query = transcript_query.filter(
+    #         base.Transcript.transcript_id.in_(sequenceregions)
+    #     )
+    #     gene_query = gene_query.filter(base.Gene.gene_id.in_(sequenceregions))
 
-    transcript_sequenceregions_df = pd.read_sql(transcript_query, session.bind)
-    transcript_sequenceregions_df.drop("gene_id", inplace=True, axis=1)
-    gene_sequenceregions_df = pd.read_sql(gene_query, session.bind)
+    # transcript_sequenceregions_df = pd.read_sql(transcript_query, session.bind)
+    # transcript_sequenceregions_df.drop("gene_id", inplace=True, axis=1)
+    # gene_sequenceregions_df = pd.read_sql(gene_query, session.bind)
 
-    sequenceregions_df = pd.concat(
-        [transcript_sequenceregions_df, gene_sequenceregions_df], axis=0
+    # sequenceregions_df = pd.concat(
+    #    [transcript_sequenceregions_df, gene_sequenceregions_df], axis=0
+    # )
+    # sequenceregions_df.set_index("id", inplace=True)
+
+    sequenceregions_df = fetch_sequenceregions(
+        session,
+        sequenceregions=sequenceregions,
+        sequenceregions_type=sequenceregions_type,
     )
-    sequenceregions_df.set_index("id", inplace=True)
 
     samplemeasurement_query = select(base.SampleMeasurement).filter(
-        base.SampleMeasurement.sequenceregion_id.in_(sequenceregions_df.index)
-        & base.SampleMeasurement.sample_id.in_(samples_df.index)
+        base.SampleMeasurement.sample_id.in_(samples_df.index)
     )
+
+    if sequenceregions:
+        samplemeasurement_query = samplemeasurement_query.filter(
+            base.SampleMeasurement.sequenceregion_id.in_(sequenceregions_df.index)
+        )
 
     samplemeasurement_df = pd.read_sql(samplemeasurement_query, session_redshift.bind)
     samplemeasurement_df = samplemeasurement_df.merge(
@@ -256,10 +335,12 @@ def query_samplemeasurement(
         ],
         left_on="sample_id",
         right_index=True,
+        how="left",
     ).merge(
         sequenceregions_df[["transcript_id", "gene_id", "type"]],
         left_on="sequenceregion_id",
         right_index=True,
+        how="left",
     )
 
     samplemeasurement_df = samplemeasurement_df.loc[
@@ -269,6 +350,18 @@ def query_samplemeasurement(
         & ~samplemeasurement_df.columns.str.startswith("study_id")
         & ~samplemeasurement_df.columns.str.startswith("sample_id"),
     ]
+
+    samplemeasurement_df = pd.concat(
+        [
+            samplemeasurement_df,
+            samplemeasurement_df["fields"].apply(
+                lambda x: unpack_fields(
+                    x, lambda x: x in ("sample_condition_1", "sample_condition_2")
+                )
+            ),
+        ],
+        axis=1,
+    )
 
     return samplemeasurement_df
 
