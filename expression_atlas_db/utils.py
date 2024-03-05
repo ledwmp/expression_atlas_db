@@ -391,15 +391,16 @@ class ExperimentParser:
             ] = 0.0
             de_df.loc[de_df["pvalue"].isna(), "pvalue"] = 1.0
             de_df.loc[de_df["log2foldchange"].isna(), "log2foldchange"] = 0.0
+            de_df["log10_padj"] = -1.0 * de_df["log10_padj"]
 
             if "log10_pvalue" in de_columns:
                 de_df.loc[de_df["log10_pvalue"].isna(), "log10_pvalue"] = 1.0
-                de_df["log10_pvalue"] = -1.0 * np.log10(de_df["log10_pvalue"])
+                de_df["log10_pvalue"] = np.log10(de_df["log10_pvalue"])
                 de_df.loc[de_df["log10_pvalue"].isna(), "log10_pvalue"] = 1.0
 
                 # This is the same log10_pvalue limit used in the processing pipeline.
 
-                de_df.loc[de_df["log10_pvalue"] > 400.0, "log10_pvalue"] = 400.0
+                de_df.loc[de_df["log10_pvalue"] < -400.0, "log10_pvalue"] = -400.0
 
             left_samples = adata.obs[
                 adata.obs[adata.uns["contrasts"][c][0]] == adata.uns["contrasts"][c][1]
@@ -618,7 +619,7 @@ class MetaDataFetcher:
                 ).read()
                 tree = ET.fromstring(response)
                 prj_id = tree.find(
-                    './/LinkSetDb[LinkName="sra_bioproject"]/Link/Id'
+                    './/LinkSetDb[LinkName="sra_bioproject_all"]/Link/Id'
                 ).text
                 if not prj_id:
                     raise ValueError("Unable to find project_id in bioprojects.")

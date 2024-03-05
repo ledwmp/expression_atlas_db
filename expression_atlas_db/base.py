@@ -85,18 +85,27 @@ class DataSet(Base):
 
 class Study(DataSet):
     __tablename__ = "study"
-    id = Column(Integer, ForeignKey("dataset.id"), primary_key=True)
+    id = Column(Integer, ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
     velia_id = Column(String(20), nullable=False)
     geo_id = Column(String(20))
     srp_id = Column(String(20))
     bio_id = Column(String(20))
     pmid = Column(String(100))
-    is_public = Column(Boolean, default=True)
-    quality = Column(String(20))
+    public = Column(Boolean, default=True)
+    quality = Column(Text)
     timestamps = Column(String(100))
     sizes = Column(String(100))
     title = Column(String(200))
     description = Column(Text)
+    samples = relationship(
+        "Sample", foreign_keys=id, back_populates="study", cascade="all, delete"
+    )
+    contrasts = relationship(
+        "Contrast", foreign_keys=id, back_populates="study", cascade="all, delete"
+    )
+    samplecontrasts = relationship(
+        "SampleContrast", foreign_keys=id, back_populates="study", cascade="all, delete"
+    )
 
     __mapper_args__ = {"polymorphic_identity": "study"}
 
@@ -104,12 +113,15 @@ class Study(DataSet):
 class Sample(DataSet):
     __tablename__ = "sample"
 
-    id = Column(Integer, ForeignKey("dataset.id"), primary_key=True)
+    id = Column(Integer, ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
     study_id = Column(Integer, ForeignKey("study.id"))
     srx_id = Column(String(20), nullable=False)
     atlas_group = Column(String(200), nullable=False)
-    study = relationship("Study", foreign_keys=study_id)
     fields = Column(JSON)
+    study = relationship("Study", foreign_keys=study_id)
+    samplecontrasts = relationship(
+        "SampleContrast", foreign_keys=id, cascade="all, delete", back_populates="sample"
+    )
 
     __table_args__ = (
         Index("idx_srx_id_sample", "srx_id"),
@@ -122,7 +134,7 @@ class Sample(DataSet):
 class Contrast(DataSet):
     __tablename__ = "contrast"
 
-    id = Column(Integer, ForeignKey("dataset.id"), primary_key=True)
+    id = Column(Integer, ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
     study_id = Column(Integer, ForeignKey("study.id"))
     contrast_name = Column(String(200), nullable=False)
     sample_condition_key = Column(String(200))
@@ -131,6 +143,12 @@ class Contrast(DataSet):
     left_condition_display = Column(String(200))
     right_condition_display = Column(String(200))
     study = relationship("Study", foreign_keys=study_id)
+    samplecontrasts = relationship(
+        "SampleContrast",
+        foreign_keys=id,
+        cascade="all, delete",
+        back_populates="contrast",
+    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -145,7 +163,7 @@ class Contrast(DataSet):
 class SampleContrast(DataSet):
     __tablename__ = "samplecontrast"
 
-    id = Column(Integer, ForeignKey("dataset.id"), primary_key=True)
+    id = Column(Integer, ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
     sample_id = Column(Integer, ForeignKey("sample.id"))
     contrast_id = Column(Integer, ForeignKey("contrast.id"))
     study_id = Column(Integer, ForeignKey("study.id"))

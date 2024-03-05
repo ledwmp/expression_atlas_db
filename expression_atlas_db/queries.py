@@ -20,14 +20,20 @@ def unpack_fields(
     return pd.Series(values, index=keys)
 
 
-def fetch_studies(session: base._Session) -> pd.DataFrame:
+def fetch_studies(session: base._Session, public: bool = True) -> pd.DataFrame:
     """ """
-    studies = pd.read_sql(select(base.Study), session.bind)
+    query = select(base.Study)
+
+    if public:
+        query = query.filter(base.Study.public == True)
+
+    studies = pd.read_sql(query, session.bind)
+
     return studies
 
 
 def fetch_contrasts(
-    session: base._Session, studies: Union[List[str], None] = None
+    session: base._Session, studies: Union[List[str], None] = None, public: bool = True
 ) -> pd.DataFrame:
     """ """
     query = select(base.Contrast, base.Study).join(
@@ -36,6 +42,9 @@ def fetch_contrasts(
 
     if studies:
         query = query.filter(base.Study.velia_id.in_(studies))
+
+    if public:
+        query = query.filter(base.Study.public == True)
 
     contrasts_df = pd.read_sql(query, session.bind)
 
@@ -83,6 +92,7 @@ def fetch_samplecontrasts(
     keep_fields: Union[List[str], Callable, None] = lambda x: x.startswith(
         "sample_condition"
     ),
+    public: bool = True,
 ) -> pd.DataFrame:
     """ """
 
@@ -99,6 +109,8 @@ def fetch_samplecontrasts(
     )
     if studies:
         query = query.filter(base.Study.velia_id.in_(studies))
+    if public:
+        query = query.filter(base.Study.public == True)
     if contrasts:
         query = query.filter(base.Contrast.contrast_name.in_(contrasts))
 
@@ -129,6 +141,7 @@ def fetch_samples(
     keep_fields: Union[List[str], Callable, None] = lambda x: x.startswith(
         "sample_condition"
     ),
+    public: bool = True,
 ) -> pd.DataFrame:
     """ """
     query = select(base.Sample, base.Study.velia_id).join(
@@ -136,6 +149,8 @@ def fetch_samples(
     )
     if studies:
         query = query.filter(base.Study.velia_id.in_(studies))
+    if public:
+        query = query.filter(base.Study.public == True)
 
     samples = pd.read_sql(query, session.bind)
     samples = pd.concat(
@@ -164,6 +179,7 @@ def query_differentialexpression(
     log10_padj_threshold: Union[float, None] = 0.5,
     log2_fc_threshold: Union[float, None] = np.log2(2.0),
     mean_threshold: Union[float, None] = 4.0,
+    public: bool = True,
 ) -> pd.DataFrame:
     """ """
     studies_query = select(base.Contrast, base.Study.velia_id).join(
@@ -172,6 +188,9 @@ def query_differentialexpression(
 
     if studies:
         studies_query = studies_query.filter(base.Study.velia_id.in_(studies))
+
+    if public:
+        studies_query = studies_query.filter(base.Study.public == True)
 
     if contrasts:
         studies_query = studies_query.filter(base.Contrast.contrast_name.in_(contrasts))
@@ -244,6 +263,7 @@ def query_samplemeasurement(
     samples: Union[List[str], None] = None,
     sequenceregions: Union[List[str], None] = None,
     sequenceregions_type: Union[str, None] = None,
+    public: bool = True,
 ) -> pd.DataFrame:
     """ """
     samples_query = select(base.Sample, base.Study.velia_id).join(
@@ -251,6 +271,9 @@ def query_samplemeasurement(
     )
     if studies:
         samples_query = samples_query.filter(base.Study.velia_id.in_(studies))
+
+    if public:
+        samples_query = samples_query.filter(base.Study.public == True)
 
     if samples:
         samples_query = samples_query.filter(base.Sample.srx_id.in_(samples))
@@ -337,10 +360,14 @@ def build_contrast_metatable(
     session: base._Session,
     studies: Union[List[str], None] = None,
     contrasts: Union[List[str], None] = None,
+    public: bool = True,
 ) -> pd.DataFrame:
     """ """
     samplecontrast_df = fetch_samplecontrasts(
-        session, studies=studies, contrasts=contrasts
+        session,
+        studies=studies,
+        contrasts=contrasts,
+        public=public,
     ).fillna("")
 
     samplecontrast_df.drop(

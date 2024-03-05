@@ -315,15 +315,15 @@ def insert_dataset(
 
     logging.info(f"Adding study {meta._study_id}.")
     study = base.Study(
-        velia_id=meta._study_id,
-        geo_id=meta._geo_id,
-        srp_id=meta._srp_id,
-        pmid=",".join(meta._pmids),
-        bio_id=meta._project_id,
+        velia_id=meta.velia_id,
+        geo_id=meta.geo_id,
+        srp_id=meta.srp_id,
+        pmid=meta.pmids,
+        bio_id=meta.bio_id,
         timestamps=exp.file_timestamps,
         sizes=exp.file_sizes,
-        title=meta._project_title,
-        description=meta._project_summary,
+        title=meta.project_title,
+        description=meta.project_summary,
     )
 
     session.add(study)
@@ -527,10 +527,55 @@ def update_study(
     session_redshift: Union[base._Session, None] = None,
     use_s3: bool = False,
     use_redshift: bool = False,
+    update_timestamp: bool = False,
     s3: Union[s3fs.core.S3FileSystem, None] = None,
 ) -> None:
     """ """
-    pass
+    logging.info(f"Checking study for update: {velia_study}.")
+    exp = ExperimentParser(
+        velia_study,
+        Path(settings.s3_experiment_loc if use_s3 else settings.test_experiment_loc),
+    )
+    if use_s3:
+        exp.enable_s3(s3)
+
+    # Check the size and date of access against the size recorded in velia_db.
+    exp.stat_adatas()
+
+    studies = session.query(base.Study).filter(base.Study.velia_id == velia_study).all()
+
+    if len(studies) != 1:
+        raise ValueError(
+            "Number of studies to update > 1. Study duplicated or does not exist in db."
+        )
+
+    if studies[0].sizes != exp.sizes:
+        logging.info(f"Updating: {velia_study}.")
+    elif update_timestamp and studies[0].timestampls != exp.file_timestamps:
+        logging.info(f"Updating: {velia_study}.")
+    else:
+        logging.info(f"Nothing to update: {velia_study}")
+        return
+
+
+def update_studies_qc(
+    session: base._Session,
+    qc_loc: Path(settings.s3_experiment_loc) / "qc.csv",
+) -> None:
+    """
+    Args:
+        session (base._Session)
+    """
+
+    s3 = s3fs.S3FileSystem()
+
+    with open(qc_loc, "rb") as f_in:
+        qc_df = pd.read_csv(f_in)
+
+    for r in qc_df.to_dict("records"):
+        session.query(base.Study).filter(base.Study.velia_id == r["velia_id"]).update(s)
+
+    session.commit()
 
 
 def add_study(
