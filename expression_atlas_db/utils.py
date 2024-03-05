@@ -497,6 +497,36 @@ class MetaDataFetcher:
         self.resolve_all_ids()
 
     @property
+    def velia_id(self) -> Union[str, None]:
+        return self._study_id
+
+    @property
+    def geo_id(self) -> Union[str, None]:
+        return self._geo_id
+
+    @property
+    def srp_id(self) -> Union[str, None]:
+        return self._srp_id
+
+    @property
+    def pmids(self) -> Union[str, None]:
+        return (
+            ",".join([pm for pm in self._pmids if pm]) if self._pmids else self._pmids
+        )
+
+    @property
+    def bio_id(self) -> Union[str, None]:
+        return self._project_id
+
+    @property
+    def project_title(self) -> Union[str, None]:
+        return self._project_title
+
+    @property
+    def project_summary(self) -> Union[str, None]:
+        return self._project_summary
+
+    @property
     def samples_metadata(self) -> pd.DataFrame:
         """ """
         columns_sum = [

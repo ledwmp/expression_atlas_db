@@ -125,7 +125,7 @@ def fetch_samplecontrasts(
 
 def fetch_samples(
     session: base._Session,
-    studies: Union[List[str], None],
+    studies: Union[List[str], None] = None,
     keep_fields: Union[List[str], Callable, None] = lambda x: x.startswith(
         "sample_condition"
     ),
@@ -179,22 +179,6 @@ def query_differentialexpression(
     studies_df = pd.read_sql(studies_query, session.bind)
     studies_df.set_index("id", inplace=True)
 
-    # transcript_query = select(base.Transcript)
-    # gene_query = select(base.Gene)
-    # if sequenceregions:
-    #     transcript_query = transcript_query.filter(
-    #         base.Transcript.transcript_id.in_(sequenceregions)
-    #     )
-    #     gene_query = gene_query.filter(base.Gene.gene_id.in_(sequenceregions))
-
-    # transcript_sequenceregions_df = pd.read_sql(transcript_query, session.bind)
-    # transcript_sequenceregions_df.drop("gene_id", inplace=True, axis=1)
-    # gene_sequenceregions_df = pd.read_sql(gene_query, session.bind)
-
-    # sequenceregions_df = pd.concat(
-    #     [transcript_sequenceregions_df, gene_sequenceregions_df], axis=0
-    # )
-    # sequenceregions_df.set_index("id", inplace=True)
     sequenceregions_df = fetch_sequenceregions(
         session,
         sequenceregions=sequenceregions,
@@ -294,23 +278,6 @@ def query_samplemeasurement(
 
     samples_df = pd.read_sql(samples_query, session.bind)
     samples_df.set_index("id", inplace=True)
-
-    # transcript_query = select(base.Transcript)
-    # gene_query = select(base.Gene)
-    # if sequenceregions:
-    #     transcript_query = transcript_query.filter(
-    #         base.Transcript.transcript_id.in_(sequenceregions)
-    #     )
-    #     gene_query = gene_query.filter(base.Gene.gene_id.in_(sequenceregions))
-
-    # transcript_sequenceregions_df = pd.read_sql(transcript_query, session.bind)
-    # transcript_sequenceregions_df.drop("gene_id", inplace=True, axis=1)
-    # gene_sequenceregions_df = pd.read_sql(gene_query, session.bind)
-
-    # sequenceregions_df = pd.concat(
-    #    [transcript_sequenceregions_df, gene_sequenceregions_df], axis=0
-    # )
-    # sequenceregions_df.set_index("id", inplace=True)
 
     sequenceregions_df = fetch_sequenceregions(
         session,
