@@ -1,17 +1,17 @@
 import sys
-import numpy as np
-import pandas as pd
 from typing import List, Tuple, Dict, Union
 from pathlib import Path
-import urllib
-import xml.etree.ElementTree as ET
 from io import StringIO
 import time
 import http
+import logging
+import tempfile
+import urllib
+import numpy as np
+import pandas as pd
+import xml.etree.ElementTree as ET
 import s3fs
 import anndata as ad
-import tempfile
-import logging
 
 from expression_atlas_db import settings
 
@@ -166,6 +166,9 @@ class ExperimentParser:
         self._transcript_size = None
         self._gene_size = None
 
+        self._adata_gene = None
+        self._adata_transcript = None
+
     @property
     def file_timestamps(self) -> str:
         return f"{self._gene_ts}/{self._transcript_ts}"
@@ -235,7 +238,7 @@ class ExperimentParser:
             raise FileNotFoundError(
                 f"AnnData with glob pattern: {glob_pattern} not found for study {self.velia_study_loc}."
             )
-        if adata_type == "transcript":
+        if "transcript" in glob_pattern:
             if not self._s3_enabled:
                 self._transcript_ts = fh.stat().st_ctime
                 self._transcript_size = fh.stat().st_size

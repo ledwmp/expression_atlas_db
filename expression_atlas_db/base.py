@@ -120,7 +120,10 @@ class Sample(DataSet):
     fields = Column(JSON)
     study = relationship("Study", foreign_keys=study_id)
     samplecontrasts = relationship(
-        "SampleContrast", foreign_keys=id, cascade="all, delete", back_populates="sample"
+        "SampleContrast",
+        foreign_keys=id,
+        cascade="all, delete",
+        back_populates="sample",
     )
 
     __table_args__ = (

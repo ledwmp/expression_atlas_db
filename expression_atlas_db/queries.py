@@ -1,6 +1,6 @@
+from typing import List, Union, Dict, Tuple, Callable
 import pandas as pd
 import numpy as np
-from typing import List, Union, Dict, Tuple, Callable
 
 from sqlalchemy import select, func
 

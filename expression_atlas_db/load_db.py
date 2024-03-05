@@ -1,13 +1,11 @@
 import sys
 from pathlib import Path
-from typing import Union
-import click
+from typing import Dict, List, Union
 import logging
 import time
+import click
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Union
-import pathlib
 import s3fs
 from sqlalchemy import Table
 
@@ -131,7 +129,7 @@ def create_differentialexpression(
         if not c.primary_key and len(c.foreign_keys) == 0
     ],
     s3_fs: Union[s3fs.core.S3FileSystem, None] = None,
-    fh: Union[pathlib.PosixPath, None] = None,
+    fh: Union[Path, None] = None,
 ) -> None:
     """
     Args:
@@ -145,7 +143,7 @@ def create_differentialexpression(
         session (Union[base._Session,None])
         de_coulumns (List[str])
         s3_fs (s3fs.core.S3FileSystem)
-        fh (Union[pathlib.PosixPath,None])
+        fh (Union[Path,None])
     """
     if bulk_insert and not session:
         raise ValueError("Need to provide a session if using bulk insert.")
@@ -213,7 +211,7 @@ def create_samplemeasurements(
         if not c.primary_key and len(c.foreign_keys) == 0
     ],
     s3_fs: Union[s3fs.core.S3FileSystem, None] = None,
-    fh: Union[pathlib.PosixPath, None] = None,
+    fh: Union[Path, None] = None,
 ) -> None:
     """
     Args:
@@ -273,14 +271,14 @@ def create_samplemeasurements(
 def copy_into_redshift_table(
     session: base._Session,
     table: Table,
-    s3_staging_loc: pathlib.PosixPath,
+    s3_staging_loc: Path,
     iam_role: str = settings.redshift_iam_role,
 ) -> None:
     """
     Args:
         session (base._Session) sqlalchemy session.
         table (base.Base) table class for destination table.
-        s3_staging_loc (pathlib.PosixPath) the location of the staging directory where csv tables get copied.
+        s3_staging_loc (Path) the location of the staging directory where csv tables get copied.
         iam_role (str) iam_role string for redshift.
     """
     s3_copy_command = f"""copy {table.name} ({', '.join([c.name for c in table.columns if not c.primary_key])})
@@ -301,7 +299,7 @@ def insert_dataset(
     exp: ExperimentParser,
     batch_columns: int = 100000,
     s3: Union[s3fs.core.S3FileSystem, None] = None,
-    staging_loc: pathlib.PosixPath = settings.test_staging_loc,
+    staging_loc: Path = settings.test_staging_loc,
 ) -> None:
     """
     Args:
@@ -310,7 +308,7 @@ def insert_dataset(
         exp (ExperimentParser)
         batch_columns (int)
         s3 (Union[s3fs.core.S3FileSystem,None])
-        staging_loc (pathlib.PosixPath)
+        staging_loc (Path)
     """
 
     logging.info(f"Adding study {meta._study_id}.")
@@ -518,8 +516,75 @@ def delete_study(
     s3: Union[s3fs.core.S3FileSystem, None] = None,
 ) -> None:
     """ """
-    pass
+    logging.info(f"Deleting study: {velia_study} from expression_atlas_db.")
 
+    # Delete the sample_measurements/differential_expression files out of s3_staging_loc.
+    gene_measurement_loc = str(
+        Path(settings.s3_staging_loc if use_s3 else settings.test_staging_loc)
+        / f"gene_measurement.{study[0].id}.csv"
+    ).replace("s3:/", "s3://")
+    transcript_measurement_loc = str(
+        Path(settings.s3_staging_loc if use_s3 else settings.test_staging_loc)
+        / f"transcript_measurement.{study[0].id}.csv"
+    ).replace("s3:/", "s3://")
+
+    logging.info(f"Removing staged file at: {gene_measurement_loc}.")
+    if use_s3:
+        s3.rm(gene_measurment_loc)
+    else:
+        Path(gene_measurement_loc).unlink()
+    logging.info(f"Removing staged file at: {transcript_measurement_loc}.")
+    if use_s3:
+        s3.rm(transcript_measurment_loc)
+    else:
+        Path(transcript_measurment_loc).unlink()
+
+    contrasts = (
+        session.query(base.Contrast).filter(base.Contrast.study_id == study[0].id).all()
+    )
+
+    for c in contrasts:
+        gene_de_loc = str(
+            Path(settings.s3_staging_loc if use_s3 else settings.test_staging_loc)
+            / f"gene_de.{study[0].id}.{c.id}.csv"
+        ).replace("s3:/", "s3://")
+        transcript_de_loc = str(
+            Path(settings.s3_staging_loc if use_s3 else settings.test_staging_loc)
+            / f"transcript_de.{study[0].id}.{c.id}.csv"
+        ).replace("s3:/", "s3://")
+        logging.info(f"Removing staged file at: {gene_de_loc}.")
+        if use_s3:
+            s3.rm(gene_de_loc)
+        else:
+            Path(gene_de_loc).unlink()
+        logging.info(f"Removing staged file at: {transcript_de_loc}.")
+        if use_s3:
+            s3.rm(transcript_de_loc)
+        else:
+            Path(transcript_de_loc).unlink()
+
+    samples = (
+        session.query(base.Sample).filter(base.Sample.study_id == study[0].id).all()
+    )
+
+    # Delete the sample_measurements/differential_expression entries out of redshift tables.
+    if use_redshift:
+        logging.info(f"Removing entries out of redshift differentialexpression table.")
+        session_redshift.execute(
+            f"DELETE FROM differentialexpression WHERE contrast_id in ({', '.join([str(c.id) for c in contrasts])});"
+        )
+        logging.info(f"Removing entries out of redshift samplemeasurement table.")
+        session_redshift.execute(
+            f"DELETE FROM samplemeasurement WHERE sample_id in ({', '.join([str(s.id) for c in samples])});"
+        )
+
+    # Delete the study, should cascade and delete all samples, contrasts, and samplecontrasts from dataset.
+    logging.info(f"Removing study: {velia_study} from expression_atlas_db.")
+    session.delete(study[0])
+    session.commit()
+    if use_redshift:
+        session_redshift.commit()
+    logging.info(f"Fully deleted study: {velia_study}.")
 
 def update_study(
     velia_study: str,
@@ -532,7 +597,7 @@ def update_study(
 ) -> None:
     """ """
     logging.info(f"Checking study for update: {velia_study}.")
-    exp = ExperimentParser(
+    exp = utils.ExperimentParser(
         velia_study,
         Path(settings.s3_experiment_loc if use_s3 else settings.test_experiment_loc),
     )
@@ -542,40 +607,212 @@ def update_study(
     # Check the size and date of access against the size recorded in velia_db.
     exp.stat_adatas()
 
-    studies = session.query(base.Study).filter(base.Study.velia_id == velia_study).all()
+    study = session.query(base.Study).filter(base.Study.velia_id == velia_study).all()
 
-    if len(studies) != 1:
+    if len(study) != 1:
         raise ValueError(
             "Number of studies to update > 1. Study duplicated or does not exist in db."
         )
 
-    if studies[0].sizes != exp.sizes:
-        logging.info(f"Updating: {velia_study}.")
-    elif update_timestamp and studies[0].timestampls != exp.file_timestamps:
-        logging.info(f"Updating: {velia_study}.")
+    if study[0].sizes != exp.file_sizes:
+        logging.info(
+            f"Updating: {velia_study} file_sizes mismatch {study[0].sizes} -> {exp.file_sizes}."
+        )
+    elif update_timestamp and study[0].timestamps != exp.file_timestamps:
+        logging.info(
+            f"Updating: {velia_study} timestamps mismatch {study[0].timestamps} -> {exp.file_timestamps}."
+        )
     else:
         logging.info(f"Nothing to update: {velia_study}")
         return
 
+    delete_study(
+        velia_study,
+        session,
+        session_redshift,
+        use_s3=use_s3,
+        use_redshift=use_redshift,
+        s3=s3,
+    )
+
+    logging.info(f"Reloading adatas: {velia_study}.")
+    exp.load_adatas()
+    logging.info(f"Fetching metadata: {velia_study}.")
+    meta = MetaDataFetcher(velia_study, exp.samples)
+    logging.info(f"Inserting datasets: {velia_study}.")
+    insert_dataset(
+        session,
+        meta,
+        exp,
+        s3=s3,
+        staging_loc=Path(
+            settings.s3_staging_loc if use_s3 else settings.test_staging_loc
+        ),
+    )
+    if use_redshift:
+        study_id = [
+            *session.query(base.Study.id).filter(base.Study.velia_id == velia_study)
+        ][0]
+        contrast_ids = [
+            *session.query(base.Contrast.id).filter(
+                base.Contrast.study.has(velia_id=velia_study)
+            )
+        ]
+
+        for m in ("gene", "transcript"):
+            copy_into_redshift_table(
+                session_redshift,
+                base.Base.metadata.tables["samplemeasurement"],
+                Path(settings.s3_staging_loc) / f"{m}_measurement.{study_id[0]}.csv",
+            )
+            for c in contrast_ids:
+                copy_into_redshift_table(
+                    session_redshift,
+                    base.Base.metadata.tables["differentialexpression"],
+                    Path(settings.s3_staging_loc) / f"{m}_de.{study_id[0]}.{c[0]}.csv",
+                )
+    # Will need to find a way to catch exceptions in one database and rollback in the other.
+    session.commit()
+    if use_redshift:
+        session_redshift.commit()
+    del exp
+    del meta
+
+
+def update_studies(
+    use_redshift: bool = False,
+    use_s3: bool = False,
+    connection_string: str = settings.db_connection_string,
+    redshift_connection_string: Union[str, None] = settings.redshift_connection_string,
+    update_timestamp: bool = False,
+) -> None:
+    """ """
+    if use_redshift:
+        Session = base.configure(connection_string)
+        SessionRedshift = base.configure(redshift_connection_string)
+
+        session = Session()
+        session_redshift = SessionRedshift()
+
+    else:
+        Session = base.configure(connection_string)
+        session = Session()
+
+    s3 = s3fs.S3FileSystem() if use_s3 else None
+    if use_s3:
+        velia_ids = [
+            Path(f).parts[-2]
+            for f in s3.glob(
+                str(Path(settings.s3_experiment_loc, "./*/de_results/")).replace(
+                    "s3:/", "s3://"
+                )
+            )
+        ]
+    else:
+        velia_ids = [
+            p for p in Path(settings.test_experiment_loc).iterdir() if p.is_dir()
+        ]
+
+    logging.info(
+        f"Found {len(velia_ids)} at {settings.s3_experiment_loc if use_s3 else settings.test_experiment_loc}."
+    )
+
+    existing_studies = [e for (e,) in session.query(base.Study.velia_id)]
+
+    logging.info(f"Found {len(existing_studies)} already populated in database.")
+
+    for e in set(velia_ids).difference(existing_studies):
+        logging.info(f"Skipping: {e} does not exist in database.")
+
+    for e in set(velia_ids).intersection(existing_studies):
+
+        try:
+            update_study(
+                e,
+                session,
+                session_redshift=session_redshift if use_redshift else None,
+                use_s3=use_s3,
+                use_redshift=use_redshift,
+                s3=s3 if use_s3 else None,
+                update_timestamp=update_timestamp,
+            )
+        except Exception as e:
+            logging.exception(e)
+            session.rollback()
+            if use_redshift:
+                session_redshift.rollback()
+    session.close()
+    if use_redshift:
+        session_redshift.close()
+
 
 def update_studies_qc(
     session: base._Session,
-    qc_loc: Path(settings.s3_experiment_loc) / "qc.csv",
+    qc_loc: Path = Path(settings.s3_staging_loc),
 ) -> None:
     """
     Args:
         session (base._Session)
+        qc_loc (Path)
     """
+    logging.info("Updating QC sheet.")
 
     s3 = s3fs.S3FileSystem()
 
-    with open(qc_loc, "rb") as f_in:
-        qc_df = pd.read_csv(f_in)
+    qc_files = s3.glob(str(qc_loc / "qc*txt").replace("s3:/", "s3://"))
+    qc_files = sorted(
+        qc_files, key=lambda x: str(Path(x).parts[-1].split(".")[1]), reverse=True
+    )
+
+    logging.info(f"Reading QC sheet: {qc_files[0]}.")
+
+    with s3.open(qc_files[0], "rb") as f_in:
+        qc_df = pd.read_csv(f_in, sep="|")
+
+    existing_studies = [s for (s,) in session.query(base.Study.velia_id)]
+
+    if len(set(qc_df["velia_id"]).difference(existing_studies)) > 0:
+        raise ValueError("Study found in QC document not populated in database.")
 
     for r in qc_df.to_dict("records"):
-        session.query(base.Study).filter(base.Study.velia_id == r["velia_id"]).update(s)
+        session.query(base.Study).filter(base.Study.velia_id == r["velia_id"]).update(r)
 
     session.commit()
+    logging.info(f"Updated studies with QC sheet: {qc_files[0]}.")
+
+
+def write_studies_qc(
+    session: base._Session,
+    qc_loc: Path = Path(settings.s3_staging_loc),
+) -> None:
+    """
+    Args:
+        session (base._Session)
+        qc_loc (Path)
+    """
+    logging.info("Writing QC sheet.")
+
+    s3 = s3fs.S3FileSystem()
+
+    qc_files = s3.glob(str(qc_loc / "qc*txt").replace("s3:/", "s3://"))
+    qc_files = sorted(
+        qc_files, key=lambda x: str(Path(x).parts[-1].split(".")[1]), reverse=True
+    )
+
+    qc_number = int(Path(qc_files[0]).parts[-1].split(".")[1]) + 1
+
+    logging.info(
+        f"Found last QC sheet: {qc_files[0]}, updating to number: {qc_number}."
+    )
+
+    with s3.open(
+        str(Path(qc_loc) / f"qc.{qc_number}.txt").replace("s3:/", "s3://"), "w"
+    ) as f_out:
+        queries.fetch_studies(session, public=False)[
+            ["velia_id", "srp_id", "geo_id", "public", "quality"]
+        ].to_csv(f_out, index=False, sep="|")
+
+    logging.info("QC sheet updated.")
 
 
 def add_study(
@@ -638,11 +875,10 @@ def add_study(
                     base.Base.metadata.tables["differentialexpression"],
                     Path(settings.s3_staging_loc) / f"{m}_de.{study_id[0]}.{c[0]}.csv",
                 )
-    # Will need to find a way to catch issues in one database and rollback issues in the other database.
+    # Will need to find a way to catch exceptions in one database and rollback in the other.
     session.commit()
     if use_redshift:
         session_redshift.commit()
-
     del exp
     del meta
 
@@ -650,21 +886,19 @@ def add_study(
 def add_studies(
     use_redshift: bool = False,
     use_s3: bool = False,
-    connection_string: str = settings.db_dev_connection_string,
-    redshift_connection_string: Union[
-        str, None
-    ] = settings.redshift_dev_connection_string,
+    connection_string: str = settings.db_connection_string,
+    redshift_connection_string: Union[str, None] = settings.redshift_connection_string,
 ) -> None:
     """ """
     if use_redshift:
-        Session = base.configure(settings.db_connection_string)
-        SessionRedshift = base.configure(settings.redshift_connection_string)
+        Session = base.configure(connection_string)
+        SessionRedshift = base.configure(redshift_connection_string)
 
         session = Session()
         session_redshift = SessionRedshift()
 
     else:
-        Session = base.configure(settings.db_connection_string)
+        Session = base.configure(connection_string)
         session = Session()
 
     s3 = s3fs.S3FileSystem() if use_s3 else None
@@ -727,13 +961,13 @@ def load_db(
 ) -> None:
     """ """
     if use_redshift:
-        Session = base.configure(settings.db_connection_string)
-        SessionRedshift = base.configure(settings.redshift_connection_string)
+        Session = base.configure(connection_string)
+        SessionRedshift = base.configure(redshift_connection_string)
 
         session = Session()
         session_redshift = SessionRedshift()
     else:
-        Session = base.configure(settings.db_connection_string)
+        Session = base.configure(connection_string)
         session = Session()
 
     if drop_all:

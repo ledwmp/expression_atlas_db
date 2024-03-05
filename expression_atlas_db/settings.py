@@ -1,11 +1,8 @@
-"""Retrive local user settings"""
-
-from configparser import ConfigParser, NoOptionError
+from configparser import ConfigParser
 from pathlib import Path
 from sys import modules
 import os
 
-self = modules[__name__]
 settings_ini = (
     Path(*Path(os.path.abspath(__file__)).parts[:-2]) / "settings.ini"
 ).resolve()
@@ -20,7 +17,7 @@ else:
     raise Exception("No settings files at path: %s" % settings_ini)
 
 # set up the database connection string
-self.db_connection_string = "postgresql://%s:%s@%s/%s" % (
+db_connection_string = "postgresql://%s:%s@%s/%s" % (
     config["DATABASE"]["postgres_user"],
     config["DATABASE"]["postgres_password"],
     config["DATABASE"]["postgres_host"],
@@ -28,7 +25,7 @@ self.db_connection_string = "postgresql://%s:%s@%s/%s" % (
 )
 
 # set up the test database connection string
-self.db_dev_connection_string = "postgresql://%s:%s@%s/%s" % (
+db_dev_connection_string = "postgresql://%s:%s@%s/%s" % (
     config["DATABASE"]["postgres_user"],
     config["DATABASE"]["postgres_password"],
     config["DATABASE"]["postgres_host"],
@@ -36,34 +33,32 @@ self.db_dev_connection_string = "postgresql://%s:%s@%s/%s" % (
 )
 
 # set up the redshift connection string
-self.redshift_connection_string = "redshift+psycopg2://%s:%s@%s" % (
+redshift_connection_string = "redshift+psycopg2://%s:%s@%s" % (
     config["DATABASE"]["redshift_user"],
     config["DATABASE"]["redshift_user"],
     config["DATABASE"]["redshift_url"],
 )
 
-self.redshift_dev_connection_string = "redshift+psycopg2://%s:%s@%s" % (
+redshift_dev_connection_string = "redshift+psycopg2://%s:%s@%s" % (
     config["DATABASE"]["redshift_user"],
     config["DATABASE"]["redshift_user"],
     config["DATABASE"]["redshift_test_url"],
 )
 
 # set sqlite database connection string
-self.sqlite_connection_string = "sqlite:///%s" % (
-    config["DATABASE"]["sqlite_test_database"]
-)
+sqlite_connection_string = "sqlite:///%s" % (config["DATABASE"]["sqlite_test_database"])
 
 # set test data location
-self.test_experiment_loc = config["DATA"]["test_experiment_loc"]
+test_experiment_loc = config["DATA"]["test_experiment_loc"]
 
 # set s3 data location
-self.s3_experiment_loc = config["DATA"]["s3_experiment_loc"]
+s3_experiment_loc = config["DATA"]["s3_experiment_loc"]
 
 # set test data staging location
-self.test_staging_loc = config["DATA"]["test_staging_loc"]
+test_staging_loc = config["DATA"]["test_staging_loc"]
 
 # set s3 staging location
-self.s3_staging_loc = config["DATA"]["s3_staging_loc"]
+s3_staging_loc = config["DATA"]["s3_staging_loc"]
 
 # set redshift iam role
-self.redshift_iam_role = config["DATA"]["redshift_iam_role"]
+redshift_iam_role = config["DATA"]["redshift_iam_role"]
