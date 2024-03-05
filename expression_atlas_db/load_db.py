@@ -747,14 +747,17 @@ def update_studies(
 
 
 def update_studies_qc(
-    session: base._Session,
+    connection_string: str = settings.db_connection_string,
     qc_loc: Path = Path(settings.s3_staging_loc),
 ) -> None:
     """
     Args:
-        session (base._Session)
+        connection_string (str)
         qc_loc (Path)
     """
+    Session = base.configure(connection_string)
+    session = Session()
+
     logging.info("Updating QC sheet.")
 
     s3 = s3fs.S3FileSystem()
@@ -782,14 +785,17 @@ def update_studies_qc(
 
 
 def write_studies_qc(
-    session: base._Session,
+    connection_string: str = settings.db_connection_string,
     qc_loc: Path = Path(settings.s3_staging_loc),
 ) -> None:
     """
     Args:
-        session (base._Session)
+        connection_string (str)
         qc_loc (Path)
     """
+    Session = base.configure(connection_string)
+    session = Session()
+
     logging.info("Writing QC sheet.")
 
     s3 = s3fs.S3FileSystem()
@@ -798,8 +804,10 @@ def write_studies_qc(
     qc_files = sorted(
         qc_files, key=lambda x: str(Path(x).parts[-1].split(".")[1]), reverse=True
     )
-
-    qc_number = int(Path(qc_files[0]).parts[-1].split(".")[1]) + 1
+    if len(qc_files) > 0:
+        qc_number = int(Path(qc_files[0]).parts[-1].split(".")[1]) + 1
+    else:
+        qc_number = 0
 
     logging.info(
         f"Found last QC sheet: {qc_files[0]}, updating to number: {qc_number}."

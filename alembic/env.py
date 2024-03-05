@@ -1,12 +1,12 @@
 import logging
-from logging.config import fileConfig
 import re
+import time
 
 from sqlalchemy import engine_from_config, pool, create_engine
 
 from alembic import context
 
-from expression_atlas_db import settings, base
+from expression_atlas_db import settings, base, load_db
 
 USE_TWOPHASE = False
 
@@ -14,44 +14,22 @@ USE_TWOPHASE = False
 # access to the values within the .ini file in use.
 config = context.config
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
-logger = logging.getLogger("alembic.env")
-
-# gather section names referring to different
-# databases.  These are named "engine1", "engine2"
-# in the sample .ini file.
-# db_names = config.get_main_option("databases", "")
 db_names = 'postgres, redshift'
 
 db_urls = {
-        'postgres':settings.db_dev_connection_string,
-        'redshift':settings.redshift_dev_connection_string,
+        'postgres':settings.db_connection_string,
+        'redshift':settings.redshift_connection_string,
         }
 
-# add your model's MetaData objects here
-# for 'autogenerate' support.  These must be set
-# up to hold just those tables targeting a
-# particular database. table.tometadata() may be
-# helpful here in case a "copy" of
-# a MetaData is needed.
-# from myapp import mymodel
 # target_metadata = {
-#       'engine1':mymodel.metadata1,
-#       'engine2':mymodel.metadata2
-# }
+#             'postgres':base.Base.metadata,
+#             'redshift':[t.to_metadata(base.Base.metadata) for n,t in base.Base.metadata.tables.items() \
+#                                                 if n in ('samplemeasurement','differentialexpression',)],
+#             }
 target_metadata = {
-            'postgres':base.Base.metadata,
-            'redshift':[t.to_metadata(base.Base.metadata) for n,t in base.Base.metadata.tables.items() \
-                                                if n in ('samplemeasurement','differentialexpression',)],
+            'postgres':'',
+            'redshift':'',
             }
-
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
 
 
 def run_migrations_offline() -> None:
@@ -76,9 +54,9 @@ def run_migrations_offline() -> None:
         rec['url'] = db_urls[name]
 
     for name, rec in engines.items():
-        logger.info("Migrating database %s" % name)
+        logging.info("Migrating database %s" % name)
         file_ = "%s.sql" % name
-        logger.info("Writing output to %s" % file_)
+        logging.info("Writing output to %s" % file_)
         with open(file_, "w") as buffer:
             context.configure(
                 url=rec["url"],
@@ -88,7 +66,7 @@ def run_migrations_offline() -> None:
                 dialect_opts={"paramstyle": "named"},
             )
             with context.begin_transaction():
-                context.run_migrations(engine_name=name)
+                context.run_migrations(engine_name=name, db_urls=db_urls)
 
 
 def run_migrations_online() -> None:
@@ -122,14 +100,14 @@ def run_migrations_online() -> None:
 
     try:
         for name, rec in engines.items():
-            logger.info("Migrating database %s" % name)
+            logging.info("Migrating database %s" % name)
             context.configure(
                 connection=rec["connection"],
                 upgrade_token="%s_upgrades" % name,
                 downgrade_token="%s_downgrades" % name,
                 target_metadata=target_metadata.get(name),
             )
-            context.run_migrations(engine_name=name)
+            context.run_migrations(engine_name=name, db_urls=db_urls)
 
         if USE_TWOPHASE:
             for rec in engines.values():

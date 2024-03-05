@@ -1,26 +1,23 @@
-<%!
-import re
+"""Test
 
-%>"""${message}
-
-Revision ID: ${up_revision}
-Revises: ${down_revision | comma,n}
-Create Date: ${create_date}
+Revision ID: 9f94af67b82b
+Revises: 
+Create Date: 2024-03-04 21:15:43.305355
 
 """
 from typing import Sequence, Union, Dict
 
 from alembic import op
 import sqlalchemy as sa
-${imports if imports else ""}
+
 
 from expression_atlas_db import base, load_db, settings
 
 # revision identifiers, used by Alembic.
-revision: str = ${repr(up_revision)}
-down_revision: Union[str, None] = ${repr(down_revision)}
-branch_labels: Union[str, Sequence[str], None] = ${repr(branch_labels)}
-depends_on: Union[str, Sequence[str], None] = ${repr(depends_on)}
+revision: str = '9f94af67b82b' 
+down_revision: Union[str, None] = '287be1c027f9'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade(engine_name: str, db_urls: Dict[str,str]) -> None:
@@ -35,7 +32,7 @@ def upgrade(engine_name: str, db_urls: Dict[str,str]) -> None:
     load_db.write_studies_qc(
         connection_string=db_urls['postgres'],
     )
-
+    
 def downgrade(engine_name: str, db_urls: Dict[str,str]) -> None:
     if engine_name == 'redshift':
         return
