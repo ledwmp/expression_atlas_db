@@ -518,6 +518,8 @@ def delete_study(
     """ """
     logging.info(f"Deleting study: {velia_study} from expression_atlas_db.")
 
+    study = session.query(base.Study).filter(base.Study.velia_id == velia_study).all()
+
     # Delete the sample_measurements/differential_expression files out of s3_staging_loc.
     gene_measurement_loc = str(
         Path(settings.s3_staging_loc if use_s3 else settings.test_staging_loc)
@@ -530,12 +532,12 @@ def delete_study(
 
     logging.info(f"Removing staged file at: {gene_measurement_loc}.")
     if use_s3:
-        s3.rm(gene_measurment_loc)
+        s3.rm(gene_measurement_loc)
     else:
         Path(gene_measurement_loc).unlink()
     logging.info(f"Removing staged file at: {transcript_measurement_loc}.")
     if use_s3:
-        s3.rm(transcript_measurment_loc)
+        s3.rm(transcript_measurement_loc)
     else:
         Path(transcript_measurment_loc).unlink()
 
@@ -585,6 +587,7 @@ def delete_study(
     if use_redshift:
         session_redshift.commit()
     logging.info(f"Fully deleted study: {velia_study}.")
+
 
 def update_study(
     velia_study: str,
@@ -1057,10 +1060,4 @@ def load_db(
 
 
 if __name__ == "__main__":
-    load_db(
-        "../../veliadb_v0c.gtf",
-        drop_all=False,
-        drop_dataset=True,
-        use_redshift=True,
-        use_s3=True,
-    )
+    pass

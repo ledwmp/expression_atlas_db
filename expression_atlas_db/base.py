@@ -98,13 +98,22 @@ class Study(DataSet):
     title = Column(String(200))
     description = Column(Text)
     samples = relationship(
-        "Sample", foreign_keys=id, back_populates="study", cascade="all, delete"
+        "Sample",
+        foreign_keys="Sample.study_id",
+        back_populates="study",
+        cascade="all, delete",
     )
     contrasts = relationship(
-        "Contrast", foreign_keys=id, back_populates="study", cascade="all, delete"
+        "Contrast",
+        foreign_keys="Contrast.study_id",
+        back_populates="study",
+        cascade="all, delete",
     )
     samplecontrasts = relationship(
-        "SampleContrast", foreign_keys=id, back_populates="study", cascade="all, delete"
+        "SampleContrast",
+        foreign_keys="SampleContrast.study_id",
+        back_populates="study",
+        cascade="all, delete",
     )
 
     __mapper_args__ = {"polymorphic_identity": "study"}
@@ -121,7 +130,7 @@ class Sample(DataSet):
     study = relationship("Study", foreign_keys=study_id)
     samplecontrasts = relationship(
         "SampleContrast",
-        foreign_keys=id,
+        foreign_keys="SampleContrast.sample_id",
         cascade="all, delete",
         back_populates="sample",
     )
@@ -148,7 +157,7 @@ class Contrast(DataSet):
     study = relationship("Study", foreign_keys=study_id)
     samplecontrasts = relationship(
         "SampleContrast",
-        foreign_keys=id,
+        foreign_keys="SampleContrast.contrast_id",
         cascade="all, delete",
         back_populates="contrast",
     )
