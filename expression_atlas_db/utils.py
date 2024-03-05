@@ -691,7 +691,7 @@ class MetaDataFetcher:
             logging.exception("Unable to link bioproject id to a geo id.", e)
 
         try:
-            self._project_title = tree.find(".//ProjectDescr/Name").text
+            self._project_title = tree.find(".//ProjectDescr/Title").text
             self._project_summary = tree.find(".//ProjectDescr/Description").text
         except Exception as e:
             logging.exception(
