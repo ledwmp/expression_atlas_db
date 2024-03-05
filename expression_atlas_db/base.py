@@ -273,104 +273,10 @@ class _Session(_SA_Session):
     """
 
     def __init__(self, *args, **kwargs):
-        super(_Session, self).__init__(*args, **kwargs)
-        self.get_or_create = MethodType(get_or_create, self)
-        self.upsert = MethodType(upsert, self)
+        super().__init__(*args, **kwargs)
 
     def __repr__(self):
         return "ExpressionAtlasDB session %d" % (self.__hash__())
-
-
-def get_or_create(session, class_type, **kwargs):
-    """gets an object using filter_by on the unique kwargs. If no such object
-    is found in the database, a new one will be created which satisfies
-    these constraints. This is why every class that wants to use this
-    method to be instantiated needs to have a UniqueConstraint defined.
-    """
-
-    for constraint in list(class_type.__table_args__):
-        if constraint.__class__.__name__ == "UniqueConstraint":
-            unique_cols = constraint.columns.keys()
-
-    inherited_result = True
-    if (
-        "__mapper_args__" in class_type.__dict__
-        and "inherits" in class_type.__mapper_args__
-    ):
-        inherited_class_type = class_type.__mapper_args__["inherits"]
-        for constraint in list(inherited_class_type.__table_args__):
-            if constraint.__class__.__name__ == "UniqueConstraint":
-                inherited_unique_cols = constraint.columns.keys()
-
-        try:
-            inherited_result = (
-                session.query(inherited_class_type)
-                .filter_by(**{k: kwargs[k] for k in inherited_unique_cols})
-                .first()
-            )
-        except:
-            None
-
-    result = (
-        session.query(class_type)
-        .filter_by(**{k: kwargs[k] for k in unique_cols})
-        .first()
-    )
-
-    if not result or not inherited_result:
-        result = class_type(**kwargs)
-        session.add(result)
-        session.commit()
-
-    return result
-
-
-def update(session, object, **kwargs):
-    """Ideally this would only search on the primary key columns so
-    that an update could be made in one call. However, its not currently
-    clear how to do that so necessary to pass in the actual object and
-    update following a call to get_or_create() There is probably some
-    way to do this with class_mapper but its hard right now
-    """
-    # result = session.query(class_type).filter_by(**kwargs).first()
-    # result = session.query(class_type).filter_by(name=kwargs['name']).first()
-    # if result is None: return
-
-    for key, value in kwargs.iteritems():
-        setattr(object, key, value)
-    session.add(object)
-    session.commit()
-
-    return object
-
-
-def upsert(session, class_type, **kwargs):
-    """TODO use all unique cols as index"""
-    for constraint in list(class_type.__table_args__):
-        if constraint.__class__.__name__ == "UniqueConstraint":
-            unique_cols = constraint.columns.keys()
-
-    stmt = insert(class_type).values(
-        [
-            kwargs,
-        ]
-    )
-
-    stmt = stmt.on_conflict_do_update(
-        index_elements=[eval(f"{class_type.__name__}.{unique_cols[0]}")],
-        set_={k: eval(f"stmt.excluded.{k}", {}, {"stmt": stmt}) for k in kwargs.keys()},
-    )
-
-    session.execute(stmt)
-    session.commit()
-
-    result = (
-        session.query(class_type)
-        .filter_by(**{k: kwargs[k] for k in unique_cols})
-        .first()
-    )
-
-    return result
 
 
 def configure(

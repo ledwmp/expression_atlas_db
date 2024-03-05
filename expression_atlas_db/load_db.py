@@ -9,6 +9,8 @@ import pandas as pd
 import s3fs
 from sqlalchemy import Table
 
+from expression_atlas_db import queries
+
 
 def configure_logger(
     log_file=None, level=logging.INFO, overwrite_log=True, format=logging.BASIC_FORMAT
@@ -638,11 +640,11 @@ def update_study(
         s3=s3,
     )
 
-    logging.info(f"Reloading adatas: {velia_study}.")
+    logging.info(f"Re-loading adatas: {velia_study}.")
     exp.load_adatas()
-    logging.info(f"Fetching metadata: {velia_study}.")
+    logging.info(f"Re-fetching metadata: {velia_study}.")
     meta = MetaDataFetcher(velia_study, exp.samples)
-    logging.info(f"Inserting datasets: {velia_study}.")
+    logging.info(f"Re-inserting datasets: {velia_study}.")
     insert_dataset(
         session,
         meta,
@@ -809,12 +811,14 @@ def write_studies_qc(
     )
     if len(qc_files) > 0:
         qc_number = int(Path(qc_files[0]).parts[-1].split(".")[1]) + 1
+        logging.info(
+            f"Found last QC sheet: {qc_files[0]}, updating to number: {qc_number}."
+        )
     else:
         qc_number = 0
-
-    logging.info(
-        f"Found last QC sheet: {qc_files[0]}, updating to number: {qc_number}."
-    )
+        logging.info(
+            f"No QC sheets found, using number: {qc_number}."
+        )
 
     with s3.open(
         str(Path(qc_loc) / f"qc.{qc_number}.txt").replace("s3:/", "s3://"), "w"

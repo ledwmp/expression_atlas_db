@@ -35,9 +35,6 @@ def upgrade(engine_name: str, db_urls: Dict[str,str]) -> None:
         connection_string=db_urls['postgres'],
     )
 
-
-
-
 def downgrade(engine_name: str, db_urls: Dict[str,str]) -> None:
     if engine_name == 'redshift':
         return
