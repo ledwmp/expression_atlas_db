@@ -241,7 +241,6 @@ def query_differentialexpression(
         sequenceregions_df[["transcript_id", "gene_id", "type"]],
         left_on="sequenceregion_id",
         right_index=True,
-        how="left",
     )
 
     differentialexpression_df = differentialexpression_df.loc[
@@ -330,7 +329,6 @@ def query_samplemeasurement(
         sequenceregions_df[["transcript_id", "gene_id", "type"]],
         left_on="sequenceregion_id",
         right_index=True,
-        how="left",
     )
 
     samplemeasurement_df = samplemeasurement_df.loc[

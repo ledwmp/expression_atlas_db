@@ -10,7 +10,6 @@ from typing import Sequence, Union, Dict
 from alembic import op
 import sqlalchemy as sa
 
-
 from expression_atlas_db import base, load_db, settings
 
 # revision identifiers, used by Alembic.

@@ -394,7 +394,8 @@ class ExperimentParser:
             ] = 0.0
             de_df.loc[de_df["pvalue"].isna(), "pvalue"] = 1.0
             de_df.loc[de_df["log2foldchange"].isna(), "log2foldchange"] = 0.0
-            de_df["log10_padj"] = -1.0 * de_df["log10_padj"]
+            if "-log10_padj" in de_columns:
+                de_df["log10_padj"] = -1.0 * de_df["log10_padj"]
 
             if "log10_pvalue" in de_columns:
                 de_df.loc[de_df["log10_pvalue"].isna(), "log10_pvalue"] = 1.0

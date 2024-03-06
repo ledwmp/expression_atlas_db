@@ -90,12 +90,12 @@ class Study(DataSet):
     geo_id = Column(String(20))
     srp_id = Column(String(20))
     bio_id = Column(String(20))
-    pmid = Column(String(100))
+    pmid = Column(Text)
     public = Column(Boolean, default=True)
     quality = Column(Text)
     timestamps = Column(String(100))
     sizes = Column(String(100))
-    title = Column(String(200))
+    title = Column(Text)
     description = Column(Text)
     samples = relationship(
         "Sample",
