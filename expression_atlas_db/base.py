@@ -1,6 +1,3 @@
-from types import MethodType
-
-import sqlalchemy
 from sqlalchemy import (
     Column,
     Integer,
@@ -13,10 +10,8 @@ from sqlalchemy import (
     Index,
     create_engine,
 )
-from sqlalchemy.orm.session import Session as _SA_Session
-from sqlalchemy.orm import relationship, sessionmaker
+from sqlalchemy.orm import relationship, sessionmaker, session
 from sqlalchemy.schema import UniqueConstraint
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.declarative import declarative_base
 
 
@@ -91,7 +86,7 @@ class Study(DataSet):
     srp_id = Column(String(20))
     bio_id = Column(String(20))
     pmid = Column(Text)
-    public = Column(Boolean, default=True)
+    public = Column(Boolean, default=False)
     quality = Column(Text)
     timestamps = Column(String(100))
     sizes = Column(String(100))
@@ -266,10 +261,8 @@ class SampleMeasurement(Base):
     }
 
 
-class _Session(_SA_Session):
-    """an sqlalchemy session object to interact with the Velia database
-    This object can used to make queries against the database
-    The Session will automatically set the search_path to settings.schema
+class _Session(session.Session):
+    """
     """
 
     def __init__(self, *args, **kwargs):
@@ -282,7 +275,7 @@ class _Session(_SA_Session):
 def configure(
     connection_str: str,
     echo: bool = False,
-) -> sqlalchemy.orm.session.Session:
+) -> session.Session:
     """ """
     engine = create_engine(connection_str, echo=echo)
     Session = sessionmaker(bind=engine, class_=_Session)

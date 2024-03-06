@@ -8,7 +8,6 @@ setup(
     classifiers=[
         'Programming Language :: Python :: 3.8',
     ],
-    keywords='microproteins',
     packages=find_packages(),
     install_requires=[
         'SQLAlchemy>=1.3.10,<2.0',

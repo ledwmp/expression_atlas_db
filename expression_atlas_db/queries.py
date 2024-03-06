@@ -176,7 +176,7 @@ def query_differentialexpression(
     contrasts: Union[List[str], None] = None,
     sequenceregions: Union[List[str], None] = None,
     sequenceregions_type: Union[str, None] = None,
-    log10_padj_threshold: Union[float, None] = 0.5,
+    log10_padj_threshold: Union[float, None] = np.log10(0.5),
     log2_fc_threshold: Union[float, None] = np.log2(2.0),
     mean_threshold: Union[float, None] = 4.0,
     public: bool = True,
@@ -215,7 +215,7 @@ def query_differentialexpression(
 
     if log10_padj_threshold:
         differentialexpression_query = differentialexpression_query.filter(
-            base.DifferentialExpression.log10_padj >= log10_padj_threshold
+            base.DifferentialExpression.log10_padj <= log10_padj_threshold
         )
 
     if mean_threshold:
