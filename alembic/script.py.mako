@@ -24,6 +24,7 @@ depends_on: Union[str, Sequence[str], None] = ${repr(depends_on)}
 
 
 def upgrade(engine_name: str, db_urls: Dict[str,str]) -> None:
+    base.DataSet.set_alembic(revision)
     if engine_name == 'redshift':
         return
     load_db.add_studies(
@@ -35,9 +36,6 @@ def upgrade(engine_name: str, db_urls: Dict[str,str]) -> None:
     load_db.write_studies_qc(
         connection_string=db_urls['postgres'],
     )
-    # load_db.update_studies_qc(
-    #     connection_string=db_urls['postgres'],
-    # )
 
 def downgrade(engine_name: str, db_urls: Dict[str,str]) -> None:
     if engine_name == 'redshift':

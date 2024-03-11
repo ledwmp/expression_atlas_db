@@ -21,6 +21,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade(engine_name: str, db_urls: Dict[str,str]) -> None:
+    base.DataSet.set_alembic(revision)
     if engine_name == 'redshift':
         return
     load_db.add_studies(
