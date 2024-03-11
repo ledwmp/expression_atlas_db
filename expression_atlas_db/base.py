@@ -6,9 +6,11 @@ from sqlalchemy import (
     Boolean,
     JSON,
     Text,
+    DateTime,
     ForeignKey,
     Index,
     create_engine,
+    func,
 )
 from sqlalchemy.orm import relationship, sessionmaker, session
 from sqlalchemy.schema import UniqueConstraint
@@ -72,7 +74,15 @@ class Transcript(SequenceRegion):
 class DataSet(Base):
     __tablename__ = "dataset"
 
+    alembic_revision_id = None
+
+    @classmethod
+    def set_alembic(cls, alembic_revision_id: str):
+        cls.alembic_revision_id = alembic_revision_id
+
     id = Column(Integer, primary_key=True, autoincrement=True)
+    alembic_id = Column(String(30), default=lambda: __class__.alembic_revision_id)
+    created_at = Column(DateTime, server_default=func.now())
     type = Column(String(30))
 
     __mapper_args__ = {"polymorphic_identity": "dataset", "polymorphic_on": "type"}
@@ -262,8 +272,7 @@ class SampleMeasurement(Base):
 
 
 class _Session(session.Session):
-    """
-    """
+    """ """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

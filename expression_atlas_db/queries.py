@@ -91,7 +91,8 @@ def fetch_samplecontrasts(
     contrasts: Union[List[str], None] = None,
     keep_fields: Union[List[str], Callable, None] = lambda x: x.startswith(
         "sample_condition"
-    ),
+    )
+    | x.startswith("sample_type"),
     public: bool = True,
 ) -> pd.DataFrame:
     """ """
@@ -344,7 +345,14 @@ def query_samplemeasurement(
             samplemeasurement_df,
             samplemeasurement_df["fields"].apply(
                 lambda x: unpack_fields(
-                    x, lambda x: x in ("sample_condition_1", "sample_condition_2")
+                    x,
+                    lambda x: x
+                    in (
+                        "sample_condition_1",
+                        "sample_condition_2",
+                        "sample_type_1",
+                        "sample_type_2",
+                    ),
                 )
             ),
         ],

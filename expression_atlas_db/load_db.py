@@ -509,6 +509,63 @@ def insert_dataset(
     del tm_measurments
 
 
+def delete_studies_from_update(
+    alembic_revision_id: str,
+    use_redshift: bool = False,
+    use_s3: bool = False,
+    connection_string: str = settings.db_connection_string,
+    redshift_connection_string: Union[str, None] = settings.redshift_connection_string,
+) -> None:
+    """ """
+    logging.info(
+        f"Querying studies across atlas with revision_id: {alembic_revision_id}."
+    )
+
+    if use_redshift:
+        Session = base.configure(connection_string)
+        SessionRedshift = base.configure(redshift_connection_string)
+
+        session = Session()
+        session_redshift = SessionRedshift()
+
+    else:
+        Session = base.configure(connection_string)
+        session = Session()
+
+    s3 = s3fs.S3FileSystem() if use_s3 else None
+
+    velia_ids = [
+        e
+        for (e,) in session.query(base.Study.velia_id).filter(
+            base.Study.alembic_id == alembic_revision_id
+        )
+    ]
+
+    logging.info(
+        f"Found {len(velia_ids)} studies to be deleted with revision_id: {alembic_revision_id}."
+    )
+
+    for e in set(velia_ids):
+
+        try:
+            delete_study(
+                e,
+                session,
+                session_redshift=session_redshift if use_redshift else None,
+                use_s3=use_s3,
+                use_redshift=use_redshift,
+                s3=s3 if use_s3 else None,
+            )
+        except Exception as e:
+            logging.exception(e)
+            session.rollback()
+            if use_redshift:
+                session_redshift.rollback()
+    session.close()
+    if use_redshift:
+        session_redshift.close()
+
+
 def delete_study(
     velia_study: str,
     session: base._Session,
@@ -816,9 +873,7 @@ def write_studies_qc(
         )
     else:
         qc_number = 0
-        logging.info(
-            f"No QC sheets found, using number: {qc_number}."
-        )
+        logging.info(f"No QC sheets found, using number: {qc_number}.")
 
     with s3.open(
         str(Path(qc_loc) / f"qc.{qc_number}.txt").replace("s3:/", "s3://"), "w"
