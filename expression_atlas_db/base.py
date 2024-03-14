@@ -284,8 +284,14 @@ class _Session(session.Session):
 def configure(
     connection_str: str,
     echo: bool = False,
+    read_only: bool = False,
 ) -> session.Session:
     """ """
-    engine = create_engine(connection_str, echo=echo)
+    engine = create_engine(
+        connection_str,
+        echo=echo,
+        execution_options={"postgresql_readonly": read_only},
+        pool_pre_ping=True,
+    )
     Session = sessionmaker(bind=engine, class_=_Session)
     return Session

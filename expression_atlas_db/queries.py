@@ -417,9 +417,9 @@ def build_contrast_metatable(
     samplecontrast_df.reset_index(inplace=True, drop=False)
     samplecontrast_df.drop(
         samplecontrast_df.columns[
-            samplecontrast_df.columns.str.startswith("sample") |
-            samplecontrast_df.columns.str.startswith("created_at") |
-            samplecontrast_df.columns.str.startswith("alembic_id")
+            samplecontrast_df.columns.str.startswith("sample")
+            | samplecontrast_df.columns.str.startswith("created_at")
+            | samplecontrast_df.columns.str.startswith("alembic_id")
         ].tolist()
         + ["contrast_side"],
         inplace=True,
