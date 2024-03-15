@@ -48,7 +48,7 @@ def bulk_insert_gtf(
     TODO: Replace None above with other sources, perhaps velia_db.
 
     Args:
-        session (base._Session): base session for expression_atlas_db.
+        session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
         gtf (Union[GTFParser,None]): object holding transcript_df and gene_df.
         batch_columns (int): number of columns to batch at one time when running inserts.
     """
@@ -603,7 +603,7 @@ def delete_study(
     copy, deletes staged files in s3 located in staging loc.
 
     Args:
-        velia_study (str): velia_study id, usually a geo or srp id.  
+        velia_study (str): velia_study id, usually a geo or srp id.
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
         session_redshift (base._Session): SQLAlchemy session object to redshift db.
         use_s3 (bool): Delete staged files out of s3 bucket.
@@ -693,18 +693,18 @@ def update_study(
     s3: Union[s3fs.core.S3FileSystem, None] = None,
 ) -> None:
     """Updates a specific velia_study present in db. If data were inserted into redshift tables via
-    copy, deletes staged files in s3 located in staging loc and replaces with new staged files. Stats 
+    copy, deletes staged files in s3 located in staging loc and replaces with new staged files. Stats
     adatas locally or in s3 to check for changes since last update. If file sizes have changed, deletes
     studies from db and re-inserts updated data. If update_timestamp flag is set, also updates upon changes to
-    the file timestamp. 
+    the file timestamp.
 
     Args:
-        velia_study (str): velia_study id, usually a geo or srp id.  
+        velia_study (str): velia_study id, usually a geo or srp id.
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
         session_redshift (base._Session): SQLAlchemy session object to redshift db.
         use_s3 (bool): Delete and replaced staged files in s3 bucket.
         use_redshift (bool): Delete and replace rows in redshift samplemeasurement and differentialexpression tables.
-        update_timestamp (bool): Default is to just assess files to update based on file sizes, this also checks timestamps. 
+        update_timestamp (bool): Default is to just assess files to update based on file sizes, this also checks timestamps.
         s3 (s3fs.core.s3FileSysetem): s3fs object for access to s3.
     """
     logging.info(f"Checking study for update: {velia_study}.")
@@ -797,16 +797,16 @@ def update_studies(
     redshift_connection_string: Union[str, None] = settings.redshift_connection_string,
     update_timestamp: bool = False,
 ) -> None:
-    """Checks for files to update in staging_loc based upon data in db. Stats adatas locally or in s3 to check 
-    for changes since last update. If file sizes have changed, deletes studies from db and re-inserts updated data. 
-    If update_timestamp flag is set, also updates upon changes to the file timestamp. 
+    """Checks for files to update in staging_loc based upon data in db. Stats adatas locally or in s3 to check
+    for changes since last update. If file sizes have changed, deletes studies from db and re-inserts updated data.
+    If update_timestamp flag is set, also updates upon changes to the file timestamp.
 
     Args:
         use_redshift (bool): Delete and replace rows in redshift samplemeasurement and differentialexpression tables.
         use_s3 (bool): Delete and replaced staged files in s3 bucket.
         connection_string (str): Connection string to main postgres/sqlite db.
         redshift_connection_string (str): Connection string to redshift db.
-        update_timestamp (bool): Default is to just assess files to update based on file sizes, this also checks timestamps. 
+        update_timestamp (bool): Default is to just assess files to update based on file sizes, this also checks timestamps.
     """
     if use_redshift:
         Session = base.configure(connection_string)
@@ -871,7 +871,7 @@ def update_studies_qc(
     connection_string: str = settings.db_connection_string,
     qc_loc: Path = Path(settings.s3_staging_loc),
 ) -> None:
-    """Pulls qc file from s3 bucket and updates public and quality columns in db. 
+    """Pulls qc file from s3 bucket and updates public and quality columns in db.
 
     Args:
         connection_string (str): Connection string to main postgres/sqlite db.
@@ -955,11 +955,11 @@ def add_study(
     s3: Union[s3fs.core.S3FileSystem, None] = None,
 ) -> None:
     """Adds a specific velia_study to db. Parses experiment and fetches metadata related to experiment.
-    Calls insert_dataset to add studies to postgres/sqlite database. If use_s3, dumps files into staging_loc 
-    that get uploaded into redshift db, otherwise dumps local txt files or runs bulk_insert.  
+    Calls insert_dataset to add studies to postgres/sqlite database. If use_s3, dumps files into staging_loc
+    that get uploaded into redshift db, otherwise dumps local txt files or runs bulk_insert.
 
     Args:
-        velia_study (str): velia_study id, usually a geo or srp id.  
+        velia_study (str): velia_study id, usually a geo or srp id.
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
         session_redshift (base._Session): SQLAlchemy session object to redshift db.
         use_s3 (bool): Delete staged files out of s3 bucket.
@@ -1102,8 +1102,8 @@ def load_db(
     ] = settings.redshift_dev_connection_string,
 ) -> None:
     """Initial load_db method. If drop_all, calls bulk_insert_gtf to populate tables inheriting from
-    sequenceregion table. Calls add_study on all experiments located at experiment_loc and populates 
-    dataset tables. 
+    sequenceregion table. Calls add_study on all experiments located at experiment_loc and populates
+    dataset tables.
 
     Args:
         gtf (str): Path to gtf to load into sequenceregions, gene, and transcript tables.

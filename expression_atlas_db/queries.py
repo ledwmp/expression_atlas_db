@@ -1,4 +1,4 @@
-from typing import List, Union, Dict, Tuple, Callable
+from typing import List, Union, Dict, Tuple, Callable, Any
 import pandas as pd
 import numpy as np
 
@@ -8,11 +8,20 @@ from expression_atlas_db import base
 
 
 def unpack_fields(
-    fields: Dict,
+    fields: Dict[str, Any],
     keep: Union[List[str], Callable, None] = lambda x: x.startswith("sample_condition")
     | x.startswith("sample_type"),
 ) -> pd.Series:
-    """ """
+    """Unpacks json fields column into series.
+
+    Args:
+        fields (Dict[str,Any]): dictionariy stored in the fields column as json,
+            needs to be unpacked to columns.
+        keep (Union[List[str], Callable, None]):
+            Filter to keep specific keys in fields. Can be list of columns, or a function.
+    Returns:
+        (pd.Series): unpacked series with filtered index with keep.
+    """
     if callable(keep):
         keys, values = zip(*[f for f in fields.items() if keep(f[0])])
     else:
@@ -20,28 +29,56 @@ def unpack_fields(
     return pd.Series(values, index=keys)
 
 
-def fetch_studies(session: base._Session, public: bool = True) -> pd.DataFrame:
-    """ """
+def fetch_studies(
+    session: base._Session, studies: Union[List[str], None] = None, public: bool = True
+) -> pd.DataFrame:
+    """Queries against the study table, returns a dataframe of the table.
+
+    Args:
+        session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
+        studies (Union[List[str],None]): List of velia_id studies to query against db.
+        public (bool): Filter for studies without public flag set.
+    Returns:
+        studies_df (pd.DataFrame): studies dataframe.
+    """
     query = select(base.Study)
+
+    if studies:
+        query = query.filter(base.Study.velia_id.in_(studies))
 
     if public:
         query = query.filter(base.Study.public == True)
 
-    studies = pd.read_sql(query, session.bind)
+    studies_df = pd.read_sql(query, session.bind)
 
-    return studies
+    return studies_df
 
 
 def fetch_contrasts(
-    session: base._Session, studies: Union[List[str], None] = None, public: bool = True
+    session: base._Session,
+    studies: Union[List[str], None] = None,
+    contrasts: Union[List[str], None] = None,
+    public: bool = True,
 ) -> pd.DataFrame:
-    """ """
+    """Queries against the contrast table, returns a dataframe of the table.
+
+    Args:
+        session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
+        studies (Union[List[str],None]): List of velia_id studies to query against db.
+        contrasts (Union[List[str],None]): List of contrast_names to query against db.
+        public (bool): Filter for studies without public flag set.
+    Returns:
+        contrasts_df (pd.DataFrame): contrasts dataframe.
+    """
     query = select(base.Contrast, base.Study).join(
         base.Study, base.Contrast.study_id == base.Study.id
     )
 
     if studies:
         query = query.filter(base.Study.velia_id.in_(studies))
+
+    if contrasts:
+        query = query.filter(base.Contrast.conrast_name.in_(contrasts))
 
     if public:
         query = query.filter(base.Study.public == True)
@@ -56,6 +93,17 @@ def fetch_sequenceregions(
     sequenceregions: Union[List[str], None] = None,
     sequenceregions_type: Union[str, None] = None,
 ) -> pd.DataFrame:
+    """Queries against the sequenceregion/gene/transcript tables, returnes a dataframe of the table.
+
+    Args:
+        session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
+        sequenceregions (Union[List[str],None]): List of transcript_ids or gene_ids to query against database.
+            These are the text ids, not the column ids from expression_atlas_db.
+        sequenceregions_type (Union[str,None]): One of "transcript", "gene", or None.
+            Filter query on either table or return all.
+    Returns:
+        sequenceregions_df (pd.DataFrame): sequenceregions dataframe.
+    """
 
     transcript_query = select(base.Transcript)
     gene_query = select(base.Gene)
@@ -95,7 +143,18 @@ def fetch_samplecontrasts(
     | x.startswith("sample_type"),
     public: bool = True,
 ) -> pd.DataFrame:
-    """ """
+    """Queries against the samplecontrast table, returns a dataframe of contrasts merged
+    with the samples used to create the contrast.
+
+    Args:
+        session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
+        studies (Union[List[str],None]): List of velia_id studies to query against db.
+        contrasts (Union[List[str],None]): List of contrast_names to query against db.
+        keep_fields (Union[List[str], Callable, None]): Passed directly to unpack_fields.
+            Columns to keep or callable to filter columns.
+    Returns:
+        samplecontrast_df (pd.DataFrame): samplecontrasts dataframe.
+    """
 
     query = (
         select(
@@ -144,30 +203,44 @@ def fetch_samples(
     ),
     public: bool = True,
 ) -> pd.DataFrame:
-    """ """
+    """Queries against the samples table, returns a dataframe of the samples.
+
+    Args:
+        session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
+        studies (Union[List[str],None]): List of velia_id studies to query against db.
+        keep_fields (Union[List[str], Callable, None]): Passed directly to unpack_fields.
+            Columns to keep or callable to filter columns.
+    Returns:
+        samples_df (pd.DataFrame): samples dataframe.
+
+    """
     query = select(base.Sample, base.Study.velia_id).join(
         base.Study, base.Study.id == base.Sample.study_id
     )
     if studies:
         query = query.filter(base.Study.velia_id.in_(studies))
+
     if public:
         query = query.filter(base.Study.public == True)
 
-    samples = pd.read_sql(query, session.bind)
-    samples = pd.concat(
-        [samples, samples["fields"].apply(lambda x: unpack_fields(x, keep_fields))],
+    samples_df = pd.read_sql(query, session.bind)
+    samples_df = pd.concat(
+        [
+            samples_df,
+            samples_df["fields"].apply(lambda x: unpack_fields(x, keep_fields)),
+        ],
         axis=1,
     )
 
-    samples = samples.loc[
+    samples_df = samples.loc[
         :,
-        ~samples.columns.str.startswith("id")
-        & ~samples.columns.str.startswith("type")
-        & ~samples.columns.str.startswith("study_id")
-        & (samples.columns != "fields"),
+        ~samples_df.columns.str.startswith("id")
+        & ~samples_df.columns.str.startswith("type")
+        & ~samples_df.columns.str.startswith("study_id")
+        & (samples_df.columns != "fields"),
     ]
 
-    return samples
+    return samples_df
 
 
 def query_differentialexpression(
@@ -182,7 +255,27 @@ def query_differentialexpression(
     mean_threshold: Union[float, None] = 4.0,
     public: bool = True,
 ) -> pd.DataFrame:
-    """ """
+    """Queries against both databases to fetch entries out of the differentialexpression
+    table. First, queries the contrast and sequenceregion tables in the postgres/sqlite db,
+    then uses the contrast_ids and sample_ids to query the differentialexpression table in
+    redshift.
+
+    Args:
+        session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
+        session_redshift (base._Session): SQLAlchemy session object to redshift db.
+        studies (Union[List[str],None]): List of velia_id studies to query against db.
+        contrasts (Union[List[str],None]): List of contrast_names to query against db.
+        sequenceregions (Union[List[str],None]): List of transcript_ids or gene_ids to query against database.
+            These are the text ids, not the column ids from expression_atlas_db.
+        sequenceregions_type (Union[str,None]): One of "transcript", "gene", or None.
+            Filter query on either table or return all.
+        log10_padj_threshold (Union[float,None]): Keep rows log10_padj < threshold.
+        log2_fc_threshold (Union[float,None]): Keep rows abs(log2(fc)) > threshold.
+        mean_threshold (Union[float,None]): Keep rows mean(normed_transformed_count) in case or control.
+        public (bool): Filter for studies without public flag set.
+    Returns:
+        differentialexpression_df (pd.DataFrame): differentialexpression dataframe.
+    """
     studies_query = select(base.Contrast, base.Study.velia_id).join(
         base.Study, base.Contrast.study_id == base.Study.id
     )
@@ -265,7 +358,23 @@ def query_samplemeasurement(
     sequenceregions_type: Union[str, None] = None,
     public: bool = True,
 ) -> pd.DataFrame:
-    """ """
+    """Queries against both databases to fetch entries out of the differentialexpression
+    table. First, queries the contrast and sequenceregion tables in the postgres/sqlite db,
+    then uses the contrast_ids and sample_ids to query the differentialexpression table in
+    redshift.
+
+    Args:
+        session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
+        session_redshift (base._Session): SQLAlchemy session object to redshift db.
+        studies (Union[List[str],None]): List of velia_id studies to query against db.
+        contrasts (Union[List[str],None]): List of contrast_names to query against db.
+        sequenceregions (Union[List[str],None]): List of transcript_ids or gene_ids to query against database.
+            These are the text ids, not the column ids from expression_atlas_db.
+        sequenceregions_type (Union[str,None]): One of "transcript", "gene", or None.
+            Filter query on either table or return all.
+    Returns:
+        samplemeasurement_df (pd.DataFrame): samplemeasurements dataframe.
+    """
     samples_query = select(base.Sample, base.Study.velia_id).join(
         base.Sample, base.Sample.study_id == base.Study.id
     )
@@ -368,7 +477,17 @@ def build_contrast_metatable(
     contrasts: Union[List[str], None] = None,
     public: bool = True,
 ) -> pd.DataFrame:
-    """ """
+    """Helper function to assemble the dashboard contrast metatable. Calls fetch_samplecontrasts
+    and coerces table to format required by dashboard.
+
+    Args:
+        session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
+        studies (Union[List[str],None]): List of velia_id studies to query against db.
+        contrasts (Union[List[str],None]): List of contrast_names to query against db.
+        public (bool): Filter for studies without public flag set.
+    Returns:
+        samplecontrast_df (pd.DataFrame): dashboard contrast metadata dataframe.
+    """
     samplecontrast_df = fetch_samplecontrasts(
         session,
         studies=studies,

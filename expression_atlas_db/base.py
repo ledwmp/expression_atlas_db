@@ -16,7 +16,6 @@ from sqlalchemy.orm import relationship, sessionmaker, session
 from sqlalchemy.schema import UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 
-
 Base = declarative_base()
 
 
@@ -38,9 +37,17 @@ class SequenceRegion(Base):
 class Gene(SequenceRegion):
     __tablename__ = "gene"
 
-    id = Column(Integer, ForeignKey("sequenceregion.id"), primary_key=True)
+    id = Column(
+        Integer, ForeignKey("sequenceregion.id", ondelete="cascade"), primary_key=True
+    )
     gene_id = Column(String(50))
     gene_biotype = Column(String(200))
+    transcripts = relationship(
+        "Transcript",
+        foreign_keys="Transcript.gene_id",
+        back_populates="gene",
+        cascade="all, delete",
+    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -55,7 +62,9 @@ class Gene(SequenceRegion):
 class Transcript(SequenceRegion):
     __tablename__ = "transcript"
 
-    id = Column(Integer, ForeignKey("sequenceregion.id"), primary_key=True)
+    id = Column(
+        Integer, ForeignKey("sequenceregion.id", ondelete="cascade"), primary_key=True
+    )
     transcript_id = Column(String(50))
     gene_id = Column(Integer, ForeignKey("gene.id"))
     gene_biotype = Column(String(200))
