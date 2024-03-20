@@ -9,7 +9,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         "SQLAlchemy>=1.3.10,<2.0",
-        'numpy>=1.24.4',
+        "numpy>=1.24.4",
         "psycopg2-binary",
         "six>=1.12.0",
         "configparser>=4.0.2",

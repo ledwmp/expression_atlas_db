@@ -9,9 +9,6 @@ import pandas as pd
 import s3fs
 from sqlalchemy import Table
 
-from expression_atlas_db import queries
-
-
 def configure_logger(
     log_file=None, level=logging.INFO, overwrite_log=True, format=logging.BASIC_FORMAT
 ):
@@ -36,7 +33,7 @@ configure_logger(
     f"{time.strftime('%Y%m%d_%H%M%S')}_expression_atlas_db.log", level=logging.INFO
 )
 
-from expression_atlas_db import base, settings, redshift_stmts
+from expression_atlas_db import base, settings, redshift_stmts, queries
 from expression_atlas_db.utils import GTFParser, ExperimentParser, MetaDataFetcher
 
 
@@ -304,6 +301,30 @@ def copy_into_redshift_table(
         session.execute(s3_copy_command)
     except Exception as e:
         raise Exception("Unable to copy data into redshift.") from e
+
+
+def copy_into_db_table(
+    session: base._Session,
+    table: Table,
+    test_staging_loc: Path,
+) -> None:
+    """Copies data from local into db tables using. If it's ever desired to use a postgres instance
+    for samplemeasurment/differentialexpression tables, this needs to be optimized.
+
+    Args:
+        session (base._Session): SQLAlchemy session object to the redshift db.
+        table (base.Base): Table class for destination table.
+        test_staging_loc (Path): The location of the staging directory where txt tables get copied.
+    """
+    try:
+        session.commit()
+        logging.info(f"Copying table {test_staging_loc} into {table.name}")
+        with open(test_staging_loc, "r") as f_in:
+            header = [c.name for c in table.columns if not c.primary_key]
+            table_df = pd.read_csv(f_in, header=None, names=header)
+        table_df.to_sql(table.name, con=session.bind, index=False, if_exists="append")
+    except Exception as e:
+        raise Exception("Unable to copy data into db.") from e
 
 
 def insert_dataset(
@@ -633,7 +654,7 @@ def delete_study(
     if use_s3:
         s3.rm(transcript_measurement_loc)
     else:
-        Path(transcript_measurment_loc).unlink()
+        Path(transcript_measurement_loc).unlink()
 
     contrasts = (
         session.query(base.Contrast).filter(base.Contrast.study_id == study[0].id).all()
@@ -671,7 +692,18 @@ def delete_study(
         )
         logging.info(f"Removing entries out of redshift samplemeasurement table.")
         session_redshift.execute(
-            f"DELETE FROM samplemeasurement WHERE sample_id in ({', '.join([str(s.id) for c in samples])});"
+            f"DELETE FROM samplemeasurement WHERE sample_id in ({', '.join([str(s.id) for s in samples])});"
+        )
+    else:
+        logging.info(
+            f"Removing entries out of local/postgres differentialexpression table."
+        )
+        session.execute(
+            f"DELETE FROM differentialexpression WHERE contrast_id in ({', '.join([str(c.id) for c in contrasts])});"
+        )
+        logging.info(f"Removing entries out of local/postgres samplemeasurement table.")
+        session.execute(
+            f"DELETE FROM samplemeasurement WHERE sample_id in ({', '.join([str(s.id) for s in samples])});"
         )
 
     # Delete the study, should cascade and delete all samples, contrasts, and samplecontrasts from dataset.
@@ -691,6 +723,7 @@ def update_study(
     use_redshift: bool = False,
     update_timestamp: bool = False,
     s3: Union[s3fs.core.S3FileSystem, None] = None,
+    force: bool = False,
 ) -> None:
     """Updates a specific velia_study present in db. If data were inserted into redshift tables via
     copy, deletes staged files in s3 located in staging loc and replaces with new staged files. Stats
@@ -706,9 +739,10 @@ def update_study(
         use_redshift (bool): Delete and replace rows in redshift samplemeasurement and differentialexpression tables.
         update_timestamp (bool): Default is to just assess files to update based on file sizes, this also checks timestamps.
         s3 (s3fs.core.s3FileSysetem): s3fs object for access to s3.
+        force (bool) Force update.
     """
     logging.info(f"Checking study for update: {velia_study}.")
-    exp = utils.ExperimentParser(
+    exp = ExperimentParser(
         velia_study,
         Path(settings.s3_experiment_loc if use_s3 else settings.test_experiment_loc),
     )
@@ -732,6 +766,10 @@ def update_study(
     elif update_timestamp and study[0].timestamps != exp.file_timestamps:
         logging.info(
             f"Updating: {velia_study} timestamps mismatch {study[0].timestamps} -> {exp.file_timestamps}."
+        )
+    elif force:
+        logging.info(
+            f"Updating: {velia_study} forcefully."
         )
     else:
         logging.info(f"Nothing to update: {velia_study}")
@@ -760,16 +798,15 @@ def update_study(
             settings.s3_staging_loc if use_s3 else settings.test_staging_loc
         ),
     )
+    study_id = [
+        *session.query(base.Study.id).filter(base.Study.velia_id == velia_study)
+    ][0]
+    contrast_ids = [
+        *session.query(base.Contrast.id).filter(
+            base.Contrast.study.has(velia_id=velia_study)
+        )
+    ]
     if use_redshift:
-        study_id = [
-            *session.query(base.Study.id).filter(base.Study.velia_id == velia_study)
-        ][0]
-        contrast_ids = [
-            *session.query(base.Contrast.id).filter(
-                base.Contrast.study.has(velia_id=velia_study)
-            )
-        ]
-
         for m in ("gene", "transcript"):
             copy_into_redshift_table(
                 session_redshift,
@@ -781,6 +818,20 @@ def update_study(
                     session_redshift,
                     base.Base.metadata.tables["differentialexpression"],
                     Path(settings.s3_staging_loc) / f"{m}_de.{study_id[0]}.{c[0]}.csv",
+                )
+    else:
+        for m in ("gene", "transcript"):
+            copy_into_db_table(
+                session,
+                base.Base.metadata.tables["samplemeasurement"],
+                Path(settings.test_staging_loc) / f"{m}_measurement.{study_id[0]}.csv",
+            )
+            for c in contrast_ids:
+                copy_into_db_table(
+                    session,
+                    base.Base.metadata.tables["differentialexpression"],
+                    Path(settings.test_staging_loc)
+                    / f"{m}_de.{study_id[0]}.{c[0]}.csv",
                 )
     # Will need to find a way to catch exceptions in one database and rollback in the other.
     session.commit()
@@ -987,16 +1038,15 @@ def add_study(
             settings.s3_staging_loc if use_s3 else settings.test_staging_loc
         ),
     )
+    study_id = [
+        *session.query(base.Study.id).filter(base.Study.velia_id == velia_study)
+    ][0]
+    contrast_ids = [
+        *session.query(base.Contrast.id).filter(
+            base.Contrast.study.has(velia_id=velia_study)
+        )
+    ]
     if use_redshift:
-        study_id = [
-            *session.query(base.Study.id).filter(base.Study.velia_id == velia_study)
-        ][0]
-        contrast_ids = [
-            *session.query(base.Contrast.id).filter(
-                base.Contrast.study.has(velia_id=velia_study)
-            )
-        ]
-
         for m in ("gene", "transcript"):
             copy_into_redshift_table(
                 session_redshift,
@@ -1009,6 +1059,21 @@ def add_study(
                     base.Base.metadata.tables["differentialexpression"],
                     Path(settings.s3_staging_loc) / f"{m}_de.{study_id[0]}.{c[0]}.csv",
                 )
+    else:
+        for m in ("gene", "transcript"):
+            copy_into_db_table(
+                session,
+                base.Base.metadata.tables["samplemeasurement"],
+                Path(settings.test_staging_loc) / f"{m}_measurement.{study_id[0]}.csv",
+            )
+            for c in contrast_ids:
+                copy_into_db_table(
+                    session,
+                    base.Base.metadata.tables["differentialexpression"],
+                    Path(settings.test_staging_loc)
+                    / f"{m}_de.{study_id[0]}.{c[0]}.csv",
+                )
+
     # Will need to find a way to catch exceptions in one database and rollback in the other.
     session.commit()
     if use_redshift:
@@ -1178,7 +1243,7 @@ def load_db(
         ]
     else:
         velia_studies = [
-            p for p in Path(settings.test_experiment_loc).iterdir() if p.is_dir()
+            p.stem for p in Path(settings.test_experiment_loc).iterdir() if p.is_dir()
         ]
 
     logging.info(f"Loading {len(velia_studies)} studies into expression_atlas_db.")
