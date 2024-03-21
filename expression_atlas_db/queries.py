@@ -92,6 +92,7 @@ def fetch_sequenceregions(
     session: base._Session,
     sequenceregions: Union[List[str], None] = None,
     sequenceregions_type: Union[str, None] = None,
+    assembly_id: Union[str, None] = None,
 ) -> pd.DataFrame:
     """Queries against the sequenceregion/gene/transcript tables, returnes a dataframe of the table.
 
@@ -101,6 +102,7 @@ def fetch_sequenceregions(
             These are the text ids, not the column ids from expression_atlas_db.
         sequenceregions_type (Union[str,None]): One of "transcript", "gene", or None.
             Filter query on either table or return all.
+        assembly_id (Union[str, None]): VeliaDB assembly_id or public assembly id.  
     Returns:
         sequenceregions_df (pd.DataFrame): sequenceregions dataframe.
     """
@@ -113,6 +115,10 @@ def fetch_sequenceregions(
             base.Transcript.transcript_id.in_(sequenceregions)
         )
         gene_query = gene_query.filter(base.Gene.gene_id.in_(sequenceregions))
+
+    if assembly_id:
+        transcript_query = transcript_query.filter(base.Transcript.assembly_id == assembly_id)
+        gene_query = gene_query.filter(base.Gene.assembly_id == assembly_id)
 
     transcript_sequenceregions_df = pd.read_sql(transcript_query, session.bind)
     transcript_sequenceregions_df.drop("gene_id", inplace=True, axis=1)
@@ -555,3 +561,47 @@ def build_contrast_metatable(
         .reset_index(["velia_id", "contrast_name"], drop=False)
     )
     return samplecontrast_df
+
+
+def query_percentile_group(
+    session: base._Session,
+    session_redshift: base._Session,
+    sample_ids: List[int],
+    percentile_levels: List[float] = [0.5, 0.75, 0.90],
+    sequenceregion_ids: Union[List[int], None] = None,
+    aggregate_column: str = 'tpm', 
+) -> pd.DataFrame:
+    """
+    Args:
+        session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
+        session_redshift (base._Session): SQLAlchemy session object to redshift db.
+        sample_ids (Union[List[str],None]): List of sample_ids to query against db.
+        percentile_levels (List[float]): List of percentile levels to query.
+        sequenceregion_ids (Union[List[int],None]): List of optional sequenceregion_ids to query.
+        aggregate_column (str): Column to aggregate percentiles over. 
+    Returns:
+        percentile_df (pd.DataFrame): Dataframe with sequenceregion_ids and aggregated expression percentiles.
+    """
+
+    if aggregate_column not in vars(base.SampleMeasurement).keys():
+        raise KeyError('aggregate_column does not exist in samplemeasurement table.')
+
+    query = select(
+        base.SampleMeasurement.sequenceregion_id,
+        *[
+            func.percentile_disc(i)
+            .within_group(vars(base.SampleMeasurement)[aggregate_column])
+            .over(partition_by=base.SampleMeasurement.sequenceregion_id)
+            .label(f"perc_{i}")
+            for i in percentile_levels
+        ],
+    ).filter(base.SampleMeasurement.sample_id.in_(sample_ids))
+
+    if sequenceregion_ids:
+        query = query.filter(
+            base.SampleMeasurement.sequenceregion_id.in_(sequenceregion_ids)
+        )
+
+    percentile_df = pd.read_sql(query.distinct(), session_redshift.bind)
+
+    return percentile_df

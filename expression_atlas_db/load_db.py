@@ -9,6 +9,7 @@ import pandas as pd
 import s3fs
 from sqlalchemy import Table
 
+
 def configure_logger(
     log_file=None, level=logging.INFO, overwrite_log=True, format=logging.BASIC_FORMAT
 ):
@@ -768,9 +769,7 @@ def update_study(
             f"Updating: {velia_study} timestamps mismatch {study[0].timestamps} -> {exp.file_timestamps}."
         )
     elif force:
-        logging.info(
-            f"Updating: {velia_study} forcefully."
-        )
+        logging.info(f"Updating: {velia_study} forcefully.")
     else:
         logging.info(f"Nothing to update: {velia_study}")
         return
