@@ -7,6 +7,7 @@ import http
 import logging
 import tempfile
 import urllib
+
 import numpy as np
 import pandas as pd
 import xml.etree.ElementTree as ET
@@ -30,8 +31,8 @@ class GTFParser:
         """Read GTF from file and create table structures.
 
         Args:
-            gtf_path (str) path to gtf file.
-            drop_duplicate_id (bool) veliadb has duplicated gene/transcript ids. Drop and keep first.
+            gtf_path (str): path to gtf file.
+            drop_duplicate_id (bool): veliadb has duplicated gene/transcript ids. Drop and keep first.
         """
         transcripts = []
         genes = []
@@ -108,11 +109,11 @@ class GTFParser:
         """Parse gtf line and return fields.
 
         Args:
-            gtf_line (str) raw gtf line
-            no_chr (bool) flag to remove chr from chromosome names.
+            gtf_line (str): raw gtf line
+            no_chr (bool): flag to remove chr from chromosome names.
 
         Returns:
-            (Tuple[Dict, Dict[str,str]]) tuple of dict of fields, dict of accessory line info.
+            (Tuple[Dict, Dict[str,str]]): tuple of dict of fields, dict of accessory line info.
         """
         chrom, source, label, start, end, score, strand, frame, info = gtf_line.split(
             "\t"
@@ -155,6 +156,11 @@ class ExperimentParser:
         velia_study_id: str,
         exp_loc: Path = Path(settings.test_experiment_loc),
     ):
+        """
+        Args:
+            velia_study_id (str): velia_study_id to load.
+            exp_loc (Path): Location of adatas to load.
+        """
         self.velia_study_id = velia_study_id
         self.velia_study_loc = exp_loc / velia_study_id
 
@@ -213,17 +219,26 @@ class ExperimentParser:
         return meta
 
     def enable_s3(self, s3fs: s3fs.core.S3FileSystem) -> None:
-        """ """
+        """Enables s3 usage.
+
+        Args:
+            s3fs (s3fs.core.S3FileSystem): s3 object to access s3 buckets.
+        """
         self._s3_enabled = True
         self._s3fs = s3fs
 
     def stat_adatas(self) -> None:
-        """ """
+        """Calls stat_adata on the gene and transcript adatas."""
         self.stat_adata(glob_pattern="*dds_gene*")
         self.stat_adata(glob_pattern="*dds_transcript*")
 
     def stat_adata(self, glob_pattern: str) -> Union[str, Path]:
-        """ """
+        """Stat the adata found with glob_pattern and updates the transcript or gene _*_ts and
+        _*_size instance attributes reflecting the stat data.
+
+        Args:
+            glob_pattern (str): glob pattern used to glob gene or transcript adatas.
+        """
         try:
             if not self._s3_enabled:
                 fh = list(Path(self.velia_study_loc / "de_results").glob(glob_pattern))[
@@ -256,12 +271,18 @@ class ExperimentParser:
         return fh
 
     def load_adatas(self) -> None:
-        """ """
+        """Calls load_adata to popupate the _adata_gene and _adata_transcript attributes."""
         self._adata_gene = self.load_adata(adata_type="gene")
         self._adata_transcript = self.load_adata(adata_type="transcript")
 
     def load_adata(self, adata_type: str = "gene") -> ad.AnnData:
-        """ """
+        """Stats and loads the adata objects specified at velia_study_loc and returns the adata object.
+
+        Args:
+            adata_type (str): Either "gene" or "transcript".
+        Returns:
+            adata (ad.AnnData) the anndata object holding the experiment.
+        """
         glob_pattern = f"*dds_{adata_type}*"
         try:
             if not self._s3_enabled:
@@ -317,7 +338,17 @@ class ExperimentParser:
         ],
         measurement_type: str = "gene",
     ) -> Dict[str, Tuple[pd.DataFrame, List[str], List[str]]]:
-        """ """
+        """Extracts and transforms the contrast data in the adatas in preparation for loading into the
+        differentialexpression table.
+
+        Args:
+            de_columns (List[str]): The columns to pull out of the contrast dataframes in order of appearance in table.
+            measurement_type (str): "gene" or "transcript", pull from the respective adata.
+        Returns:
+            contrast_dict (Dict[str, Tuple[pd.DataFrame, List[str], List[str]]]):
+                Dictionary keyed by contrast name and tuple values with the differential expression dataframe, a list of
+                samples on the left side of the contrast, and a list of samples on the right side of the contrast.
+        """
         if not self._adata_transcript or not self._adata_gene:
             raise AttributeError("Set adatas with load_adatas method.")
 
@@ -427,7 +458,17 @@ class ExperimentParser:
         ],
         measurement_type: str = "gene",
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[str]]:
-        """ """
+        """Extracts and transforms the sample data in the adatas in preparation for loading into the
+        samplemeasurement table.
+
+        Args:
+            measurements (List[str]): The layers to pull out of the adata in order of appearance in table.
+            measurement_type (str): "gene" or "transcript", pull from the respective adata.
+        Returns:
+            (Tuple[np.ndarray,np.ndarray,np.ndarray,List[str]]):
+                Array of sample_ids, sequenceregion_ids, a 2d-array of the measurements with the second dimension
+                the same size as arg measurements, and the column names to populate .
+        """
         if not self._adata_transcript or not self._adata_gene:
             raise AttributeError("Set adatas with load_adatas method.")
         if measurement_type == "transcript":
@@ -515,9 +556,7 @@ class MetaDataFetcher:
 
     @property
     def pmids(self) -> Union[str, None]:
-        return (
-            ",".join([pm for pm in self._pmids if pm]) if self._pmids else self._pmids
-        )
+        return ",".join([pm for pm in self._pmids if pm]) if self._pmids else None
 
     @property
     def bio_id(self) -> Union[str, None]:
@@ -565,7 +604,18 @@ class MetaDataFetcher:
     def fetch_url(
         self, url: str, attempt_n: int = 0, max_attempts: int = 5
     ) -> http.client.HTTPResponse:
-        """ """
+        """Recursively fetches urls with options for attempts and retries. 
+        Checks response headers to look for "Retry-After" suggestions in event
+        of failed request.
+
+        Args:
+            url (str): The url to fetch. 
+            attempt_n (int): Current attempt number, for tracking number of attempts 
+                before raising exception. 
+            max_attempts (int): Maximum number of attempts before raising exception. 
+        Returns:
+            (http.client.HTTPResponse): Response object. 
+        """
         try:
             response = urllib.request.urlopen(url)
         except urllib.error.HTTPError as e:
@@ -586,7 +636,9 @@ class MetaDataFetcher:
         return response
 
     def resolve_all_ids(self) -> None:
-        """ """
+        """
+        Args: 
+        """
         if self._study_id.startswith("GS"):
             self._geo_id = self._study_id
             self._project_id = self.link_project_id(is_sra=False)
@@ -609,7 +661,11 @@ class MetaDataFetcher:
         self.fetch_srx_info()
 
     def link_project_id(self, is_sra: bool = True) -> str:
-        """ """
+        """ 
+        Args:
+        Returns:
+        
+        """
         if is_sra:
             try:
                 # Need to get an SRR id from the SRP.

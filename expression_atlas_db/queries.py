@@ -238,7 +238,7 @@ def fetch_samples(
         axis=1,
     )
 
-    samples_df = samples.loc[
+    samples_df = samples_df.loc[
         :,
         ~samples_df.columns.str.startswith("id")
         & ~samples_df.columns.str.startswith("type")
@@ -584,7 +584,7 @@ def query_percentile_group(
     """
 
     if aggregate_column not in vars(base.SampleMeasurement).keys():
-        raise KeyError('aggregate_column does not exist in samplemeasurement table.')
+        raise KeyError('Aggregate_column does not exist in samplemeasurement table.')
 
     query = select(
         base.SampleMeasurement.sequenceregion_id,
