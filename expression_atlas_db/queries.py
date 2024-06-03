@@ -2,7 +2,7 @@ from typing import List, Union, Dict, Tuple, Callable, Any
 import pandas as pd
 import numpy as np
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 
 from expression_atlas_db import base
 
@@ -93,8 +93,11 @@ def fetch_sequenceregions(
     sequenceregions: Union[List[str], None] = None,
     sequenceregions_type: Union[str, None] = None,
     assembly_id: Union[str, None] = None,
+    exact_id_match: bool = True,
 ) -> pd.DataFrame:
     """Queries against the sequenceregion/gene/transcript tables, returnes a dataframe of the table.
+
+    TODO: Get ilike queries working here in if sequence_regions block. 
 
     Args:
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
@@ -111,10 +114,16 @@ def fetch_sequenceregions(
     gene_query = select(base.Gene)
 
     if sequenceregions:
-        transcript_query = transcript_query.filter(
-            base.Transcript.transcript_id.in_(sequenceregions)
-        )
-        gene_query = gene_query.filter(base.Gene.gene_id.in_(sequenceregions))
+        if exact_id_match:
+            transcript_query = transcript_query.filter(
+                base.Transcript.transcript_id.in_(sequenceregions)
+            )
+            gene_query = gene_query.filter(base.Gene.gene_id.in_(sequenceregions))
+        else:
+            conditions_gene = [base.Gene.gene_id.ilike(f'{g}%') for g in sequenceregions]
+            conditions_transcript = [base.Transcript.transcript_id.ilike(f'{t}%') for t in sequenceregions]
+            transcript_query = transcript_query.filter(or_(*conditions_transcript))
+            gene_query = gene_query.filter(or_(*conditions_gene))
 
     if assembly_id:
         transcript_query = transcript_query.filter(base.Transcript.assembly_id == assembly_id)
@@ -256,10 +265,11 @@ def query_differentialexpression(
     contrasts: Union[List[str], None] = None,
     sequenceregions: Union[List[str], None] = None,
     sequenceregions_type: Union[str, None] = None,
-    log10_padj_threshold: Union[float, None] = np.log10(0.5),
+    log10_padj_threshold: Union[float, None] = np.log10(0.05),
     log2_fc_threshold: Union[float, None] = np.log2(2.0),
     mean_threshold: Union[float, None] = 4.0,
     public: bool = True,
+    exact_id_match: bool = True, 
 ) -> pd.DataFrame:
     """Queries against both databases to fetch entries out of the differentialexpression
     table. First, queries the contrast and sequenceregion tables in the postgres/sqlite db,
@@ -279,6 +289,7 @@ def query_differentialexpression(
         log2_fc_threshold (Union[float,None]): Keep rows abs(log2(fc)) > threshold.
         mean_threshold (Union[float,None]): Keep rows mean(normed_transformed_count) in case or control.
         public (bool): Filter for studies without public flag set.
+        exact_id_match (bool): Whether to allow matches to sequenceregions with prefixes. 
     Returns:
         differentialexpression_df (pd.DataFrame): differentialexpression dataframe.
     """
@@ -302,6 +313,7 @@ def query_differentialexpression(
         session,
         sequenceregions=sequenceregions,
         sequenceregions_type=sequenceregions_type,
+        exact_id_match=exact_id_match,
     )
 
     differentialexpression_query = select(base.DifferentialExpression).filter(
@@ -363,6 +375,7 @@ def query_samplemeasurement(
     sequenceregions: Union[List[str], None] = None,
     sequenceregions_type: Union[str, None] = None,
     public: bool = True,
+    exact_id_match: bool = True, 
 ) -> pd.DataFrame:
     """Queries against both databases to fetch entries out of the differentialexpression
     table. First, queries the contrast and sequenceregion tables in the postgres/sqlite db,
@@ -378,6 +391,7 @@ def query_samplemeasurement(
             These are the text ids, not the column ids from expression_atlas_db.
         sequenceregions_type (Union[str,None]): One of "transcript", "gene", or None.
             Filter query on either table or return all.
+        exact_id_match (bool): Whether to allow matches to sequenceregions with prefixes. 
     Returns:
         samplemeasurement_df (pd.DataFrame): samplemeasurements dataframe.
     """
@@ -421,6 +435,7 @@ def query_samplemeasurement(
         session,
         sequenceregions=sequenceregions,
         sequenceregions_type=sequenceregions_type,
+        exact_id_match=exact_id_match,
     )
 
     samplemeasurement_query = select(base.SampleMeasurement).filter(
