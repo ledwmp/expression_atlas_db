@@ -97,15 +97,13 @@ def fetch_sequenceregions(
 ) -> pd.DataFrame:
     """Queries against the sequenceregion/gene/transcript tables, returnes a dataframe of the table.
 
-    TODO: Get ilike queries working here in if sequence_regions block. 
-
     Args:
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
         sequenceregions (Union[List[str],None]): List of transcript_ids or gene_ids to query against database.
             These are the text ids, not the column ids from expression_atlas_db.
         sequenceregions_type (Union[str,None]): One of "transcript", "gene", or None.
             Filter query on either table or return all.
-        assembly_id (Union[str, None]): VeliaDB assembly_id or public assembly id.  
+        assembly_id (Union[str, None]): VeliaDB assembly_id or public assembly id.
     Returns:
         sequenceregions_df (pd.DataFrame): sequenceregions dataframe.
     """
@@ -120,13 +118,19 @@ def fetch_sequenceregions(
             )
             gene_query = gene_query.filter(base.Gene.gene_id.in_(sequenceregions))
         else:
-            conditions_gene = [base.Gene.gene_id.ilike(f'{g}%') for g in sequenceregions]
-            conditions_transcript = [base.Transcript.transcript_id.ilike(f'{t}%') for t in sequenceregions]
+            conditions_gene = [
+                base.Gene.gene_id.ilike(f"{g}%") for g in sequenceregions
+            ]
+            conditions_transcript = [
+                base.Transcript.transcript_id.ilike(f"{t}%") for t in sequenceregions
+            ]
             transcript_query = transcript_query.filter(or_(*conditions_transcript))
             gene_query = gene_query.filter(or_(*conditions_gene))
 
     if assembly_id:
-        transcript_query = transcript_query.filter(base.Transcript.assembly_id == assembly_id)
+        transcript_query = transcript_query.filter(
+            base.Transcript.assembly_id == assembly_id
+        )
         gene_query = gene_query.filter(base.Gene.assembly_id == assembly_id)
 
     transcript_sequenceregions_df = pd.read_sql(transcript_query, session.bind)
@@ -269,7 +273,7 @@ def query_differentialexpression(
     log2_fc_threshold: Union[float, None] = np.log2(2.0),
     mean_threshold: Union[float, None] = 4.0,
     public: bool = True,
-    exact_id_match: bool = True, 
+    exact_id_match: bool = True,
 ) -> pd.DataFrame:
     """Queries against both databases to fetch entries out of the differentialexpression
     table. First, queries the contrast and sequenceregion tables in the postgres/sqlite db,
@@ -289,7 +293,7 @@ def query_differentialexpression(
         log2_fc_threshold (Union[float,None]): Keep rows abs(log2(fc)) > threshold.
         mean_threshold (Union[float,None]): Keep rows mean(normed_transformed_count) in case or control.
         public (bool): Filter for studies without public flag set.
-        exact_id_match (bool): Whether to allow matches to sequenceregions with prefixes. 
+        exact_id_match (bool): Whether to allow matches to sequenceregions with prefixes.
     Returns:
         differentialexpression_df (pd.DataFrame): differentialexpression dataframe.
     """
@@ -375,7 +379,7 @@ def query_samplemeasurement(
     sequenceregions: Union[List[str], None] = None,
     sequenceregions_type: Union[str, None] = None,
     public: bool = True,
-    exact_id_match: bool = True, 
+    exact_id_match: bool = True,
 ) -> pd.DataFrame:
     """Queries against both databases to fetch entries out of the differentialexpression
     table. First, queries the contrast and sequenceregion tables in the postgres/sqlite db,
@@ -391,7 +395,7 @@ def query_samplemeasurement(
             These are the text ids, not the column ids from expression_atlas_db.
         sequenceregions_type (Union[str,None]): One of "transcript", "gene", or None.
             Filter query on either table or return all.
-        exact_id_match (bool): Whether to allow matches to sequenceregions with prefixes. 
+        exact_id_match (bool): Whether to allow matches to sequenceregions with prefixes.
     Returns:
         samplemeasurement_df (pd.DataFrame): samplemeasurements dataframe.
     """
@@ -584,7 +588,7 @@ def query_percentile_group(
     sample_ids: List[int],
     percentile_levels: List[float] = [0.5, 0.75, 0.90],
     sequenceregion_ids: Union[List[int], None] = None,
-    aggregate_column: str = 'tpm', 
+    aggregate_column: str = "tpm",
 ) -> pd.DataFrame:
     """
     Args:
@@ -593,13 +597,13 @@ def query_percentile_group(
         sample_ids (Union[List[str],None]): List of sample_ids to query against db.
         percentile_levels (List[float]): List of percentile levels to query.
         sequenceregion_ids (Union[List[int],None]): List of optional sequenceregion_ids to query.
-        aggregate_column (str): Column to aggregate percentiles over. 
+        aggregate_column (str): Column to aggregate percentiles over.
     Returns:
         percentile_df (pd.DataFrame): Dataframe with sequenceregion_ids and aggregated expression percentiles.
     """
 
     if aggregate_column not in vars(base.SampleMeasurement).keys():
-        raise KeyError('Aggregate_column does not exist in samplemeasurement table.')
+        raise KeyError("Aggregate_column does not exist in samplemeasurement table.")
 
     query = select(
         base.SampleMeasurement.sequenceregion_id,

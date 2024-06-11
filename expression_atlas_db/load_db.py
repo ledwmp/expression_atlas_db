@@ -936,7 +936,7 @@ def update_studies_qc(
 
     qc_files = s3.glob(str(qc_loc / "qc*txt").replace("s3:/", "s3://"))
     qc_files = sorted(
-        qc_files, key=lambda x: str(Path(x).parts[-1].split(".")[1]), reverse=True
+        qc_files, key=lambda x: int(Path(x).parts[-1].split(".")[1]), reverse=True
     )
 
     logging.info(f"Reading QC sheet: {qc_files[0]}.")
@@ -975,7 +975,7 @@ def write_studies_qc(
 
     qc_files = s3.glob(str(qc_loc / "qc*txt").replace("s3:/", "s3://"))
     qc_files = sorted(
-        qc_files, key=lambda x: str(Path(x).parts[-1].split(".")[1]), reverse=True
+        qc_files, key=lambda x: int(Path(x).parts[-1].split(".")[1]), reverse=True
     )
     if len(qc_files) > 0:
         qc_number = int(Path(qc_files[0]).parts[-1].split(".")[1]) + 1

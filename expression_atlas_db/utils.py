@@ -604,17 +604,17 @@ class MetaDataFetcher:
     def fetch_url(
         self, url: str, attempt_n: int = 0, max_attempts: int = 5
     ) -> http.client.HTTPResponse:
-        """Recursively fetches urls with options for attempts and retries. 
+        """Recursively fetches urls with options for attempts and retries.
         Checks response headers to look for "Retry-After" suggestions in event
         of failed request.
 
         Args:
-            url (str): The url to fetch. 
-            attempt_n (int): Current attempt number, for tracking number of attempts 
-                before raising exception. 
-            max_attempts (int): Maximum number of attempts before raising exception. 
+            url (str): The url to fetch.
+            attempt_n (int): Current attempt number, for tracking number of attempts
+                before raising exception.
+            max_attempts (int): Maximum number of attempts before raising exception.
         Returns:
-            (http.client.HTTPResponse): Response object. 
+            (http.client.HTTPResponse): Response object.
         """
         try:
             response = urllib.request.urlopen(url)
@@ -637,7 +637,7 @@ class MetaDataFetcher:
 
     def resolve_all_ids(self) -> None:
         """
-        Args: 
+        Args:
         """
         if self._study_id.startswith("GS"):
             self._geo_id = self._study_id
@@ -661,10 +661,10 @@ class MetaDataFetcher:
         self.fetch_srx_info()
 
     def link_project_id(self, is_sra: bool = True) -> str:
-        """ 
+        """
         Args:
         Returns:
-        
+
         """
         if is_sra:
             try:
