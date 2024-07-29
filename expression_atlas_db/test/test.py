@@ -6,6 +6,7 @@ import logging
 
 import pandas as pd
 import numpy as np
+from sqlalchemy import select
 
 from expression_atlas_db import base, settings, queries, load_db, utils
 
@@ -138,6 +139,109 @@ class TestExperimentParser(TestBase):
         """ """
         self._exps = {}
         self._adatas = {}
+
+
+class TestQueue(TestBase):
+
+    def testQueueAdd(self):
+        """ """
+        results = queries.submit_studyqueue(
+            self.session,
+            "SRP129004",
+            "Because.",
+            "BULK",
+            geo_id="GSE209142",
+        )
+        self.assertEqual(results[0], False)
+        self.assertTrue(isinstance(results[1], str))
+        results = queries.submit_studyqueue(
+            self.session,
+            "SRP129004",
+            "Because.",
+            "BULK",
+            geo_id="GSE109142",
+        )
+        self.assertEqual(results[0], False)
+        results = queries.submit_studyqueue(
+            self.session,
+            "SRP129004",
+            "Because.",
+            "BULK",
+            geo_id="GSE109142",
+        )
+        self.assertEqual(results[0], True)
+        results = queries.submit_studyqueue(
+            self.session,
+            "SRP129004",
+            "Because.",
+            "BULKS",
+            geo_id="GSE109142",
+        )
+        self.assertEqual(results[0], False)
+        self.assertTrue(isinstance(results[1], str))
+
+    def testQueueUpdate(self):
+        """ """
+        results = queries.submit_studyqueue(
+            self.session,
+            "SRP129004",
+            "Because.",
+            "BULK",
+        )
+        results[1].loc[:, "request"] = "To search for a gene."
+        results = queries.update_studyqueue(
+            self.session,
+            results[1],
+        )
+        studyqueue_df = pd.read_sql(
+            select(base.StudyQueue).filter(
+                base.StudyQueue.id.in_(results["id"].tolist())
+            ),
+            con=self.session.bind,
+        )
+        print(studyqueue_df)
+
+
+class TestLoad(TestFullBase):
+
+    def testLoad(self):
+        """ """
+        sample_counts = self.session.query(base.Sample).count()
+        study_counts = self.session.query(base.Study).count()
+        differentialexpression_counts = self.session.query(
+            base.DifferentialExpression
+        ).count()
+
+        self.assertEqual(sample_counts, 301)
+        self.assertEqual(study_counts, 2)
+        self.assertEqual(differentialexpression_counts, 58245)
+
+
+class TestBulkStudyQueueAdd(TestFullBase):
+
+    def testStudyQueueAdd(self):
+        """ """
+        self.session.query(base.StudyQueue).delete()
+        studies = self.session.query(base.Study).all()
+        for s in studies:
+            load_db.add_studyqueue(
+                s.velia_id,
+                self.session,
+                technology="BULK",
+                study_id=s.id,
+                processed=True,
+                status="UPLOADED",
+                **{
+                    c.name: getattr(s, c.name)
+                    for c in base.StudyQueue.__table__.columns
+                    if not c.primary_key
+                    and len(c.foreign_keys) == 0
+                    and c.name in base.Study.__table__.columns.keys()
+                    and c.name != "velia_id"
+                },
+            )
+        studyqueues = self.session.query(base.StudyQueue).all()
+        self.assertEqual(len(studyqueues), 2)
 
 
 class TestDeleteStudy(TestFullBase):
@@ -289,6 +393,4 @@ class TestUpdateStudy(TestFullBase):
 
 
 if __name__ == "__main__":
-    pass
-    # unittest.main()
-    
+    unittest.main()

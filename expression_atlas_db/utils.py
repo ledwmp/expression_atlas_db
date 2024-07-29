@@ -540,7 +540,7 @@ class MetaDataFetcher:
         self._project_summary = None
         self._sra_df = None
         self._pmids = []
-        self.resolve_all_ids()
+        self.resolve_all_ids(fetch_srx_info=len(srx_ids) != 0)
 
     @property
     def velia_id(self) -> Union[str, None]:
@@ -635,7 +635,7 @@ class MetaDataFetcher:
             return self.fetch_url(url, attempt_n=attempt)
         return response
 
-    def resolve_all_ids(self) -> None:
+    def resolve_all_ids(self, fetch_srx_info: bool = True) -> None:
         """
         Args:
         """
@@ -658,7 +658,8 @@ class MetaDataFetcher:
             raise ValueError("Cannot define db from study_id.")
 
         self.fetch_bioproject_info()
-        self.fetch_srx_info()
+        if fetch_srx_info:
+            self.fetch_srx_info()
 
     def link_project_id(self, is_sra: bool = True) -> str:
         """

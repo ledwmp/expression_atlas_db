@@ -1,10 +1,11 @@
-from typing import List, Union, Dict, Tuple, Callable, Any
+from typing import List, Union, Dict, Tuple, Callable, Any, Optional
 import pandas as pd
 import numpy as np
 
 from sqlalchemy import select, func, or_
 
 from expression_atlas_db import base
+from expression_atlas_db.utils import MetaDataFetcher
 
 
 def unpack_fields(
@@ -260,6 +261,130 @@ def fetch_samples(
     ]
 
     return samples_df
+
+
+def fetch_studyqueue(session: base._Session) -> pd.DataFrame:
+    """Queries against the studyqueue table, returns a dataframe of the studies in queue.
+
+    Args:
+        session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
+    Returns:
+        studyqueues_df (pd.DataFrame): samples dataframe.
+    """
+    return pd.read_sql(
+        select(base.StudyQueue),
+        con=session.bind,
+    )
+
+
+def update_studyqueue(
+    session: base._Session,
+    update_rows: pd.DataFrame,
+    update_columns: List[str] = [
+        "request",
+        "public",
+        "processed",
+        "status",
+        "technology",
+        "quality",
+    ],
+) -> pd.DataFrame:
+    """Update studyqueue table with metadata from editable dataframe.
+
+    Args:
+        session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
+        update_rows (pd.DataFrame): Dataframe of rows to be updated in studyqueue.
+        update_columns (List[str]): List of column names to restrict update to.
+    Returns:
+        (pd.DataFrame): Updated rows in dataframe.
+    """
+    for i, r in update_rows.iterrows():
+        sq = (
+            session.query(base.StudyQueue).filter(base.StudyQueue.id == r["id"]).first()
+        )
+        for c in update_columns:
+            setattr(sq, c, r.get(c))
+    session.commit()
+    return pd.read_sql(
+        select(base.StudyQueue).filter(
+            base.StudyQueue.id.in_(update_rows["id"].tolist())
+        ),
+        con=session.bind,
+    )
+
+
+def submit_studyqueue(
+    session: base._Session,
+    srp_id: str,
+    request: str,
+    technology: str,
+    geo_id: Union[str, None] = None,
+) -> Tuple[bool, Optional[pd.DataFrame], Optional[str]]:
+    """Submit a study to the queue table.
+
+    Args:
+        session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
+        srp_id (str): SRP project id.
+        request (str): Reason for requesting dataset.
+        technology (str): Technology type for queue. Must be one of {'BULK', '10X-3', '10X-5', 'SMART-SEQ'}.
+        geo_id (str): GEO ID for project.
+
+    Returns:
+        (Tuple[bool, Optional[pd.DataFrame], Optional[str]]): Study exists, dataframe with results, message string.
+
+    """
+    if technology not in (
+        "BULK",
+        "10X-3",
+        "10X-5",
+        "SMART-SEQ",
+    ):
+        return (
+            False,
+            f"Technology must be one of {'BULK', '10X-3', '10X-5', 'SMART-SEQ'}, is: {srp_id}.",
+        )
+    studyqueue = (
+        session.query(base.StudyQueue)
+        .filter((base.StudyQueue.srp_id == srp_id) | (base.StudyQueue.geo_id == geo_id))
+        .first()
+    )
+
+    if not studyqueue:
+        meta = MetaDataFetcher(srp_id, [])
+        if geo_id and meta.geo_id == geo_id or not geo_id:
+            studyqueue = base.StudyQueue(
+                velia_id=srp_id,
+                geo_id=geo_id,
+                srp_id=srp_id,
+                pmid=meta.pmids,
+                title=meta.project_title,
+                description=meta.project_summary,
+                public=False,
+                processed=False,
+                status="QUEUED",
+                technology=technology,
+                request=request,
+            )
+            session.add(studyqueue)
+            session.commit()
+            return (
+                False,
+                pd.read_sql(
+                    select(base.StudyQueue).filter(base.StudyQueue.id == studyqueue.id),
+                    con=session.bind,
+                ),
+            )
+        else:
+            return (False, f"Cannot request metadata for {srp_id}.")
+
+    else:
+        return (
+            True,
+            pd.read_sql(
+                select(base.StudyQueue).filter(base.StudyQueue.id == studyqueue.id),
+                con=session.bind,
+            ),
+        )
 
 
 def query_differentialexpression(

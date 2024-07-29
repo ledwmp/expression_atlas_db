@@ -996,6 +996,43 @@ def write_studies_qc(
     logging.info("QC sheet updated.")
 
 
+def add_studyqueue(
+    velia_study: str,
+    session: base._Session,
+    geo_id: Union[str, None] = None,
+    srp_id: Union[str, None] = None,
+    study_id: Union[int, None] = None,
+    pmid: Union[str, None] = None,
+    status: Union[str, None] = None,
+    quality: Union[str, None] = None,
+    request: Union[str, None] = None,
+    technology: Union[str, None] = None,
+    description: Union[str, None] = None,
+    title: Union[str, None] = None,
+    public: bool = False,
+    processed: bool = False,
+) -> base.StudyQueue:
+    """Adds an entry into the processing queue."""
+    studyqueue = base.StudyQueue(
+        velia_id=velia_study,
+        geo_id=geo_id,
+        srp_id=srp_id,
+        pmid=pmid,
+        title=title,
+        description=description,
+        public=public,
+        processed=processed,
+        status=status,
+        study_id=study_id,
+        quality=quality,
+        technology=technology,
+        request=request,
+    )
+    session.add(studyqueue)
+
+    return studyqueue
+
+
 def add_study(
     velia_study: str,
     session: base._Session,
@@ -1027,6 +1064,34 @@ def add_study(
     exp.load_adatas()
     logging.info(f"Fetching metadata: {velia_study}.")
     meta = MetaDataFetcher(velia_study, exp.samples)
+    logging.info(f"Updating queue: {velia_study}.")
+    studyqueue = (
+        session.query(base.StudyQueue.velia_id)
+        .filter(
+            (base.StudyQueue.srp_id == meta.srp_id)
+            | (base.StudyQueue.geo_id == meta.geo_id)
+            | (base.StudyQueue.velia_id == velia_study)
+        )
+        .first()
+    )
+
+    if not studyqueue:
+        studyqueue = add_studyqueue(
+            velia_study,
+            session,
+            geo_id=meta.geo_id,
+            srp_id=meta.srp_id,
+            pmid=meta.pmids,
+            title=meta.project_title,
+            description=meta.project_summary,
+            public=True,
+            processed=True,
+            status="UPLOADED",
+        )
+    else:
+        studyqueue.status = "UPLOADED"
+        studyqueue.processed = True
+
     logging.info(f"Inserting datasets: {velia_study}.")
     insert_dataset(
         session,
@@ -1040,6 +1105,9 @@ def add_study(
     study_id = [
         *session.query(base.Study.id).filter(base.Study.velia_id == velia_study)
     ][0]
+
+    studyqueue.study_id = study_id[0]
+
     contrast_ids = [
         *session.query(base.Contrast.id).filter(
             base.Contrast.study.has(velia_id=velia_study)

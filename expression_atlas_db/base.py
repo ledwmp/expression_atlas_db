@@ -97,6 +97,26 @@ class DataSet(Base):
     __mapper_args__ = {"polymorphic_identity": "dataset", "polymorphic_on": "type"}
 
 
+class StudyQueue(DataSet):
+    __tablename__ = "studyqueue"
+    id = Column(Integer, ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
+    velia_id = Column(String(20), nullable=False)
+    geo_id = Column(String(20))
+    srp_id = Column(String(20))
+    study_id = Column(Integer)
+    pmid = Column(Text)
+    status = Column(Text)
+    quality = Column(Text)
+    technology = Column(Text)
+    title = Column(Text)
+    description = Column(Text)
+    request = Column(Text)
+    public = Column(Boolean, default=False)
+    processed = Column(Boolean, default=False)
+
+    __mapper_args__ = {"polymorphic_identity": "studyqueue"}
+
+
 class Study(DataSet):
     __tablename__ = "study"
     id = Column(Integer, ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
