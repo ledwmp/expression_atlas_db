@@ -32,7 +32,7 @@ def upgrade(engine_name: str, db_urls: Dict[str,str]) -> None:
 
     studies = session.query(base.Study).all()
     for s in studies:
-        load_db.submit_studyqueue(
+        load_db.add_studyqueue(
             s.velia_id,
             session,
             technology='BULK',
@@ -46,6 +46,10 @@ def upgrade(engine_name: str, db_urls: Dict[str,str]) -> None:
                 and c.name != 'velia_id'
             },
         )
+    studyqueues = session.query(base.StudyQueue).all()
+    for sq in studyqueues:
+        sq.public = True
+
     session.commit()
 
 

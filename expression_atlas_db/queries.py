@@ -263,16 +263,31 @@ def fetch_samples(
     return samples_df
 
 
-def fetch_studyqueue(session: base._Session) -> pd.DataFrame:
+def fetch_studyqueue(
+    session: base._Session,
+    public: bool = True,
+) -> pd.DataFrame:
     """Queries against the studyqueue table, returns a dataframe of the studies in queue.
 
     Args:
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
+        public (bool): Filter for studies without public flag set.
     Returns:
         studyqueues_df (pd.DataFrame): samples dataframe.
     """
+    query = select(
+        base.StudyQueue, 
+        base.Study.id.label('study_id'), 
+        base.Study.public.label('data_released'),
+    ).join(
+        base.Study, base.StudyQueue.study_id == base.Study.id,
+        isouter=True,
+    )
+    if public:
+        query = query.filter(base.StudyQueue.public == True)
+
     return pd.read_sql(
-        select(base.StudyQueue),
+        query,
         con=session.bind,
     )
 
@@ -304,6 +319,8 @@ def update_studyqueue(
         )
         for c in update_columns:
             setattr(sq, c, r.get(c))
+        if r.get('delete', False) == True:
+            setattr(sq, 'public', False)
     session.commit()
     return pd.read_sql(
         select(base.StudyQueue).filter(
@@ -351,7 +368,7 @@ def submit_studyqueue(
 
     if not studyqueue:
         meta = MetaDataFetcher(srp_id, [])
-        if geo_id and meta.geo_id == geo_id or not geo_id:
+        if (meta.srp_id and geo_id and meta.geo_id == geo_id) or (not geo_id and meta.srp_id):
             studyqueue = base.StudyQueue(
                 velia_id=srp_id,
                 geo_id=geo_id,
@@ -374,6 +391,8 @@ def submit_studyqueue(
                     con=session.bind,
                 ),
             )
+        elif geo_id and meta.geo_id != geo_id:
+            return (False, f"Submitted geo id and geo id associated with {srp_id} don't match.")
         else:
             return (False, f"Cannot request metadata for {srp_id}.")
 
