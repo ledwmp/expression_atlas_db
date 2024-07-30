@@ -276,11 +276,12 @@ def fetch_studyqueue(
         studyqueues_df (pd.DataFrame): samples dataframe.
     """
     query = select(
-        base.StudyQueue, 
-        base.Study.id.label('study_id'), 
-        base.Study.public.label('data_released'),
+        base.StudyQueue,
+        base.Study.id.label("study_id"),
+        base.Study.public.label("data_released"),
     ).join(
-        base.Study, base.StudyQueue.study_id == base.Study.id,
+        base.Study,
+        base.StudyQueue.study_id == base.Study.id,
         isouter=True,
     )
     if public:
@@ -297,8 +298,6 @@ def update_studyqueue(
     update_rows: pd.DataFrame,
     update_columns: List[str] = [
         "request",
-        "public",
-        "processed",
         "status",
         "technology",
         "quality",
@@ -319,8 +318,8 @@ def update_studyqueue(
         )
         for c in update_columns:
             setattr(sq, c, r.get(c))
-        if r.get('delete', False) == True:
-            setattr(sq, 'public', False)
+        if r.get("delete", False) == True:
+            setattr(sq, "public", False)
     session.commit()
     return pd.read_sql(
         select(base.StudyQueue).filter(
@@ -368,7 +367,9 @@ def submit_studyqueue(
 
     if not studyqueue:
         meta = MetaDataFetcher(srp_id, [])
-        if (meta.srp_id and geo_id and meta.geo_id == geo_id) or (not geo_id and meta.srp_id):
+        if (meta.srp_id and geo_id and meta.geo_id == geo_id) or (
+            not geo_id and meta.srp_id
+        ):
             studyqueue = base.StudyQueue(
                 velia_id=srp_id,
                 geo_id=geo_id,
@@ -376,7 +377,7 @@ def submit_studyqueue(
                 pmid=meta.pmids,
                 title=meta.project_title,
                 description=meta.project_summary,
-                public=False,
+                public=True,
                 processed=False,
                 status="QUEUED",
                 technology=technology,
@@ -392,7 +393,10 @@ def submit_studyqueue(
                 ),
             )
         elif geo_id and meta.geo_id != geo_id:
-            return (False, f"Submitted geo id and geo id associated with {srp_id} don't match.")
+            return (
+                False,
+                f"Submitted geo id and geo id associated with {srp_id} don't match.",
+            )
         else:
             return (False, f"Cannot request metadata for {srp_id}.")
 
@@ -768,3 +772,101 @@ def query_percentile_group(
     percentile_df = pd.read_sql(query.distinct(), session_redshift.bind)
 
     return percentile_df
+
+
+def build_expression_atlas_summary_dfs(
+    session: base._Session,
+    public: bool = True,
+    ambiguous_tisues: List[str] = ["COLON", "BLOOD", "BONE_MARROW", "BRAIN"],
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Builds summary study, contrast, and sample tables from expression atlas.
+
+    Args:
+        session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
+        public (bool): Filter for studies without public flag set.
+        ambiguous_tissues (List[str]): List of tissues (sample_type_1) where we want to transfer higher-granularity labels.
+    Returns:
+        studies_df, contrasts_df, samples_df (Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]): dfs.
+    """
+    # Pull studies df.
+    studies_df = fetch_studies(session, public=public)
+
+    # Pull and munge metadata samples df.
+    samples_df = fetch_samples(
+        session,
+        keep_fields=lambda x: x.startswith(
+            (
+                "sample_type_1",
+                "sample_type_2",
+                "sample_condition_1",
+                "sample_condition_2",
+                "disease_",
+            )
+        ),
+        public=public,
+    )
+    samples_df["primary_disease"] = samples_df.apply(
+        lambda x: [
+            c
+            for c in x[x.index.str.startswith("disease_")]
+            if not pd.isna(c) and c != "NA"
+        ],
+        axis=1,
+    )
+    samples_df["primary_tissue"] = samples_df.apply(
+        lambda x: (
+            x["sample_type_2"].upper()
+            if not pd.isna(x["sample_type_2"])
+            and x["sample_type_1"] in ambiguous_tisues
+            else x["sample_type_1"].upper()
+        ),
+        axis=1,
+    )
+    samples_df["primary_condition"] = samples_df["sample_condition_1"].copy()
+
+    # Pull samplecontrasts link table.
+    contrasts_df = fetch_samplecontrasts(session, public=public)
+
+    # Merge metadata into studies, contrasts.
+    studies_df = (
+        studies_df.loc[:, ["velia_id", "pmid", "title", "description"]]
+        .merge(
+            samples_df.loc[:, ["velia_id", "primary_tissue", "primary_disease"]],
+            on="velia_id",
+            how="left",
+        )
+        .explode("primary_disease")
+        .drop_duplicates()
+        .reset_index(drop=True)
+    )
+
+    contrasts_df = (
+        contrasts_df.loc[
+            contrasts_df["contrast_side"] == "left",
+            ["velia_id", "contrast_name", "srx_id"],
+        ]
+        .merge(
+            samples_df.loc[
+                :, ["velia_id", "primary_tissue", "primary_disease", "srx_id"]
+            ],
+            on=["velia_id", "srx_id"],
+            how="left",
+        )
+        .loc[:, ["velia_id", "contrast_name", "primary_tissue", "primary_disease"]]
+        .explode("primary_disease")
+        .drop_duplicates()
+        .reset_index(drop=True)
+    )
+
+    samples_df = samples_df.loc[
+        :,
+        [
+            "srx_id",
+            "velia_id",
+            "primary_tissue",
+            "primary_disease",
+            "primary_condition",
+        ],
+    ]
+
+    return studies_df, contrasts_df, samples_df
