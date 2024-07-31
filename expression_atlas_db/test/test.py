@@ -150,6 +150,10 @@ class TestQueue(TestBase):
             "SRP129004",
             "Because.",
             "BULK",
+            "Because.",
+            "Because.",
+            "Because.",
+            "Unit test",
             geo_id="GSE209142",
         )
         self.assertEqual(results[0], False)
@@ -159,6 +163,10 @@ class TestQueue(TestBase):
             "SRP129004",
             "Because.",
             "BULK",
+            "Because.",
+            "Because.",
+            "Because.",
+            "Unit test",
             geo_id="GSE109142",
         )
         self.assertEqual(results[0], False)
@@ -167,6 +175,10 @@ class TestQueue(TestBase):
             "SRP129004",
             "Because.",
             "BULK",
+            "Because.",
+            "Because.",
+            "Because.",
+            "Unit test",
             geo_id="GSE109142",
         )
         self.assertEqual(results[0], True)
@@ -175,6 +187,10 @@ class TestQueue(TestBase):
             "SRP129004",
             "Because.",
             "BULKS",
+            "Because.",
+            "Because.",
+            "Because.",
+            "Unit test",
             geo_id="GSE109142",
         )
         self.assertEqual(results[0], False)
@@ -187,6 +203,10 @@ class TestQueue(TestBase):
             "SRP129004",
             "Because.",
             "BULK",
+            "Because.",
+            "Because.",
+            "Because.",
+            "Unit test",
         )
         results[1].loc[:, "request"] = "To search for a gene."
         results = queries.update_studyqueue(

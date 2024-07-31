@@ -110,7 +110,12 @@ class StudyQueue(DataSet):
     technology = Column(Text)
     title = Column(Text)
     description = Column(Text)
-    request = Column(Text)
+    category = Column(Text)
+    requestor = Column(Text)
+    priority = Column(Text)
+    contrast = Column(Text)
+    disease = Column(Text)
+    tissue = Column(Text)
     public = Column(Boolean, default=False)
     processed = Column(Boolean, default=False)
 

@@ -332,8 +332,12 @@ def update_studyqueue(
 def submit_studyqueue(
     session: base._Session,
     srp_id: str,
-    request: str,
+    category: str,
     technology: str,
+    disease: str,
+    tissue: str,
+    contrast: str,
+    requestor: str,
     geo_id: Union[str, None] = None,
 ) -> Tuple[bool, Optional[pd.DataFrame], Optional[str]]:
     """Submit a study to the queue table.
@@ -341,8 +345,12 @@ def submit_studyqueue(
     Args:
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
         srp_id (str): SRP project id.
-        request (str): Reason for requesting dataset.
+        category (str): Reason for requesting dataset.
         technology (str): Technology type for queue. Must be one of {'BULK', '10X-3', '10X-5', 'SMART-SEQ'}.
+        disease (str): Disease(s) for requested dataset.
+        tissue (str): Tissues(s) for requested dataset.
+        contrasts (str): Contrast(s) for requested dataset.
+        requestor (str): Requestor(s) for requested dataset.
         geo_id (str): GEO ID for project.
 
     Returns:
@@ -381,7 +389,11 @@ def submit_studyqueue(
                 processed=False,
                 status="QUEUED",
                 technology=technology,
-                request=request,
+                category=category,
+                disease=disease,
+                tissue=tissue,
+                requestor=requestor,
+                contrast=contrast,
             )
             session.add(studyqueue)
             session.commit()
@@ -389,7 +401,7 @@ def submit_studyqueue(
                 False,
                 pd.read_sql(
                     select(base.StudyQueue).filter(base.StudyQueue.id == studyqueue.id),
-                    con=session.bind,
+                    session.bind,
                 ),
             )
         elif geo_id and meta.geo_id != geo_id:
@@ -405,7 +417,7 @@ def submit_studyqueue(
             True,
             pd.read_sql(
                 select(base.StudyQueue).filter(base.StudyQueue.id == studyqueue.id),
-                con=session.bind,
+                session.bind,
             ),
         )
 

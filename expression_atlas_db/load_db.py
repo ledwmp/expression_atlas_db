@@ -1005,7 +1005,7 @@ def add_studyqueue(
     pmid: Union[str, None] = None,
     status: Union[str, None] = None,
     quality: Union[str, None] = None,
-    request: Union[str, None] = None,
+    category: Union[str, None] = None,
     technology: Union[str, None] = None,
     description: Union[str, None] = None,
     title: Union[str, None] = None,
@@ -1026,7 +1026,7 @@ def add_studyqueue(
         study_id=study_id,
         quality=quality,
         technology=technology,
-        request=request,
+        category=category,
     )
     session.add(studyqueue)
 
