@@ -208,7 +208,7 @@ class TestQueue(TestBase):
             "Because.",
             "Unit test",
         )
-        results[1].loc[:, "request"] = "To search for a gene."
+        results[1].loc[:, "category"] = "To search for a gene."
         results = queries.update_studyqueue(
             self.session,
             results[1],
@@ -217,9 +217,11 @@ class TestQueue(TestBase):
             select(base.StudyQueue).filter(
                 base.StudyQueue.id.in_(results["id"].tolist())
             ),
-            con=self.session.bind,
+            self.session.bind,
         )
-        print(studyqueue_df)
+        self.assertEqual(
+            studyqueue_df.loc[:, "category"].values[0], "To search for a gene."
+        )
 
 
 class TestLoad(TestFullBase):

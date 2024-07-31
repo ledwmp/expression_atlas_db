@@ -297,7 +297,8 @@ def update_studyqueue(
     session: base._Session,
     update_rows: pd.DataFrame,
     update_columns: List[str] = [
-        "request",
+        "contrast",
+        "category",
         "status",
         "technology",
         "quality",
@@ -369,7 +370,10 @@ def submit_studyqueue(
         )
     studyqueue = (
         session.query(base.StudyQueue)
-        .filter((base.StudyQueue.srp_id == srp_id) | (base.StudyQueue.geo_id == geo_id))
+        .filter(
+            (base.StudyQueue.srp_id == srp_id)
+            | ((base.StudyQueue.geo_id == geo_id) & (base.StudyQueue.geo_id != None))
+        )
         .first()
     )
 
