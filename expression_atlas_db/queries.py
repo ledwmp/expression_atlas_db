@@ -297,6 +297,8 @@ def update_studyqueue(
     session: base._Session,
     update_rows: pd.DataFrame,
     update_columns: List[str] = [
+        "tissue",
+        "disease",
         "contrast",
         "category",
         "status",
@@ -400,12 +402,10 @@ def submit_studyqueue(
                 contrast=contrast,
             )
             session.add(studyqueue)
-            session.commit()
             return (
                 False,
-                pd.read_sql(
-                    select(base.StudyQueue).filter(base.StudyQueue.id == studyqueue.id),
-                    session.bind,
+                pd.DataFrame(
+                    [{c.name: getattr(studyqueue, c.name, None) for c in base.StudyQueue.__table__.columns}],
                 ),
             )
         elif geo_id and meta.geo_id != geo_id:
