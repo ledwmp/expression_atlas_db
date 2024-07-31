@@ -365,10 +365,11 @@ def submit_studyqueue(
         "10X-3",
         "10X-5",
         "SMART-SEQ",
+        "OTHER",
     ):
         return (
             False,
-            f"Technology must be one of {'BULK', '10X-3', '10X-5', 'SMART-SEQ'}, is: {srp_id}.",
+            f"Technology must be one of {'BULK', '10X-3', '10X-5', 'SMART-SEQ', 'OTHER'}, is: {srp_id}.",
         )
     studyqueue = (
         session.query(base.StudyQueue)
@@ -405,7 +406,12 @@ def submit_studyqueue(
             return (
                 False,
                 pd.DataFrame(
-                    [{c.name: getattr(studyqueue, c.name, None) for c in base.StudyQueue.__table__.columns}],
+                    [
+                        {
+                            c.name: getattr(studyqueue, c.name, None)
+                            for c in base.StudyQueue.__table__.columns
+                        }
+                    ],
                 ),
             )
         elif geo_id and meta.geo_id != geo_id:
