@@ -154,6 +154,8 @@ class TestQueue(TestBase):
             "Because.",
             "Because.",
             "Unit test",
+            "ULTRA_HIGH",
+            "None.",
             geo_id="GSE209142",
         )
         self.assertEqual(results[0], False)
@@ -167,6 +169,8 @@ class TestQueue(TestBase):
             "Because.",
             "Because.",
             "Unit test",
+            "ULTRA_HIGH",
+            "None.",
             geo_id="GSE109142",
         )
         self.assertEqual(results[0], False)
@@ -179,6 +183,8 @@ class TestQueue(TestBase):
             "Because.",
             "Because.",
             "Unit test",
+            "ULTRA_HIGH",
+            "None.",
             geo_id="GSE109142",
         )
         self.assertEqual(results[0], True)
@@ -191,6 +197,8 @@ class TestQueue(TestBase):
             "Because.",
             "Because.",
             "Unit test",
+            "ULTRA_HIGH",
+            "None.",
             geo_id="GSE109142",
         )
         self.assertEqual(results[0], False)
@@ -207,8 +215,12 @@ class TestQueue(TestBase):
             "Because.",
             "Because.",
             "Unit test",
+            "ULTRA_HIGH",
+            "None.",
         )
-        results[1].loc[:, "category"] = "To search for a gene."
+        self.session.commit()
+        results = (None, queries.fetch_studyqueue(self.session))
+        results[1].loc[0, "category"] = "To search for a gene."
         results = queries.update_studyqueue(
             self.session,
             results[1],

@@ -116,6 +116,7 @@ class StudyQueue(DataSet):
     contrast = Column(Text)
     disease = Column(Text)
     tissue = Column(Text)
+    comments = Column(Text)
     public = Column(Boolean, default=False)
     processed = Column(Boolean, default=False)
 

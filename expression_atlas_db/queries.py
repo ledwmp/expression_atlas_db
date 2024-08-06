@@ -304,6 +304,8 @@ def update_studyqueue(
         "status",
         "technology",
         "quality",
+        "priority",
+        "comments",
     ],
 ) -> pd.DataFrame:
     """Update studyqueue table with metadata from editable dataframe.
@@ -341,6 +343,8 @@ def submit_studyqueue(
     tissue: str,
     contrast: str,
     requestor: str,
+    priority: str, 
+    comments: str, 
     geo_id: Union[str, None] = None,
 ) -> Tuple[bool, Optional[pd.DataFrame], Optional[str]]:
     """Submit a study to the queue table.
@@ -354,6 +358,8 @@ def submit_studyqueue(
         tissue (str): Tissues(s) for requested dataset.
         contrasts (str): Contrast(s) for requested dataset.
         requestor (str): Requestor(s) for requested dataset.
+        priority (str): Priority level for requested dataset.
+        comments (str): General comments for requested dataset.
         geo_id (str): GEO ID for project.
 
     Returns:
@@ -381,7 +387,10 @@ def submit_studyqueue(
     )
 
     if not studyqueue:
-        meta = MetaDataFetcher(srp_id, [])
+        try:
+            meta = MetaDataFetcher(srp_id, [])
+        except Exception as e:
+            return (False, e)
         if (meta.srp_id and geo_id and meta.geo_id == geo_id) or (
             not geo_id and meta.srp_id
         ):
@@ -401,6 +410,8 @@ def submit_studyqueue(
                 tissue=tissue,
                 requestor=requestor,
                 contrast=contrast,
+                priority=priority,
+                comments=comments,
             )
             session.add(studyqueue)
             return (
