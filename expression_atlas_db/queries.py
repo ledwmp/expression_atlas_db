@@ -1,11 +1,14 @@
 from typing import List, Union, Dict, Tuple, Callable, Any, Optional
+import warnings
+
 import pandas as pd
 import numpy as np
-
 from sqlalchemy import select, func, or_
 
 from expression_atlas_db import base
 from expression_atlas_db.utils import MetaDataFetcher
+
+warnings.filterwarnings("ignore", message="An alias is being generated .*")
 
 
 def unpack_fields(
@@ -343,8 +346,8 @@ def submit_studyqueue(
     tissue: str,
     contrast: str,
     requestor: str,
-    priority: str, 
-    comments: str, 
+    priority: str,
+    comments: str,
     geo_id: Union[str, None] = None,
 ) -> Tuple[bool, Optional[pd.DataFrame], Optional[str]]:
     """Submit a study to the queue table.
