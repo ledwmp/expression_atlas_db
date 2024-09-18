@@ -787,6 +787,34 @@ def update_study(
     exp.load_adatas()
     logging.info(f"Re-fetching metadata: {velia_study}.")
     meta = MetaDataFetcher(velia_study, exp.samples)
+
+    studyqueue = (
+        session.query(base.StudyQueue)
+        .filter(
+            (base.StudyQueue.srp_id == meta.srp_id)
+            | (base.StudyQueue.geo_id == meta.geo_id)
+            | (base.StudyQueue.velia_id == velia_study)
+        )
+        .first()
+    )
+
+    if not studyqueue:
+        studyqueue = add_studyqueue(
+            velia_study,
+            session,
+            geo_id=meta.geo_id,
+            srp_id=meta.srp_id,
+            pmid=meta.pmids,
+            title=meta.project_title,
+            description=meta.project_summary,
+            public=True,
+            processed=True,
+            status="UPLOADED",
+        )
+    else:
+        studyqueue.status = "UPLOADED"
+        studyqueue.processed = True
+
     logging.info(f"Re-inserting datasets: {velia_study}.")
     insert_dataset(
         session,
@@ -800,6 +828,9 @@ def update_study(
     study_id = [
         *session.query(base.Study.id).filter(base.Study.velia_id == velia_study)
     ][0]
+
+    studyqueue.study_id = study_id[0]
+
     contrast_ids = [
         *session.query(base.Contrast.id).filter(
             base.Contrast.study.has(velia_id=velia_study)
@@ -1066,7 +1097,7 @@ def add_study(
     meta = MetaDataFetcher(velia_study, exp.samples)
     logging.info(f"Updating queue: {velia_study}.")
     studyqueue = (
-        session.query(base.StudyQueue.velia_id)
+        session.query(base.StudyQueue)
         .filter(
             (base.StudyQueue.srp_id == meta.srp_id)
             | (base.StudyQueue.geo_id == meta.geo_id)

@@ -1,7 +1,8 @@
-from typing import List, Union, Dict, Tuple, Callable, Any, Optional
+from typing import List, Union, Dict, Tuple, Callable, Any, Optional, Literal
 import warnings
 
 import pandas as pd
+import anndata as ad
 import numpy as np
 from sqlalchemy import select, func, or_
 
@@ -637,10 +638,27 @@ def query_samplemeasurement(
 
     samplemeasurement_df = pd.read_sql(samplemeasurement_query, session_redshift.bind)
     samplemeasurement_df = samplemeasurement_df.merge(
-        samples_df[
-            ["velia_id", "srx_id", "atlas_group", "fields"]
-            + ([] if not contrasts else ["contrast_name", "contrast_side"])
-        ],
+        pd.concat(
+            [
+                samples_df[
+                    ["velia_id", "srx_id", "atlas_group", "fields"]
+                    + ([] if not contrasts else ["contrast_name", "contrast_side"])
+                ],
+                samples_df["fields"].apply(
+                    lambda x: unpack_fields(
+                        x,
+                        lambda x: x
+                        in (
+                            "sample_condition_1",
+                            "sample_condition_2",
+                            "sample_type_1",
+                            "sample_type_2",
+                        ),
+                    )
+                ),
+            ],
+            axis=1,
+        ),
         left_on="sample_id",
         right_index=True,
         how="left",
@@ -657,25 +675,6 @@ def query_samplemeasurement(
         & ~samplemeasurement_df.columns.str.startswith("study_id")
         & ~samplemeasurement_df.columns.str.startswith("sample_id"),
     ]
-
-    samplemeasurement_df = pd.concat(
-        [
-            samplemeasurement_df,
-            samplemeasurement_df["fields"].apply(
-                lambda x: unpack_fields(
-                    x,
-                    lambda x: x
-                    in (
-                        "sample_condition_1",
-                        "sample_condition_2",
-                        "sample_type_1",
-                        "sample_type_2",
-                    ),
-                )
-            ),
-        ],
-        axis=1,
-    )
 
     return samplemeasurement_df
 
@@ -810,6 +809,97 @@ def query_percentile_group(
     return percentile_df
 
 
+def build_study_adata_components(
+    session: base._Session,
+    session_redshift: base._Session,
+    studies: List[str],
+    sequenceregions_type: Literal["gene", "transcript"],
+    return_adata: bool = False,
+) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], ad.AnnData]:
+    """Queries against both databases to fetch entries out of the differentialexpression
+    table. First, queries the contrast and sequenceregion tables in the postgres/sqlite db,
+    then uses the contrast_ids and sample_ids to query the differentialexpression table in
+    redshift.
+
+    Args:
+        session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
+        session_redshift (base._Session): SQLAlchemy session object to redshift db.
+        studies (List[str]): List of velia_ids to query against db.
+        sequenceregions_type (Literal["gene", "transcript"]): Filter var by gene or transcript.
+        return_adata (bool): Convert to adata or return long df, obs df, var df.
+    Returns:
+        (Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], ad.AnnData]):
+            long df, obs df, var df or adata.
+    """
+    samples_query = (
+        select(base.Sample, base.Study.velia_id)
+        .join(base.Sample, base.Sample.study_id == base.Study.id)
+        .filter(base.Study.velia_id.in_(studies))
+    )
+
+    samples_df = pd.read_sql(samples_query, session.bind).drop("id_1", axis=1)
+    samples_df = pd.concat(
+        [
+            samples_df,
+            samples_df["fields"].apply(
+                lambda x: unpack_fields(
+                    x,
+                    lambda x: x
+                    in (
+                        "sample_condition_1",
+                        "sample_condition_2",
+                        "sample_type_1",
+                        "sample_type_2",
+                    ),
+                )
+            ),
+        ],
+        axis=1,
+    )
+    samples_df = samples_df.sort_values("id").set_index("id")
+
+    sequenceregions_df = (
+        fetch_sequenceregions(
+            session,
+            sequenceregions_type=sequenceregions_type,
+        )
+        .drop(["assembly_id", "id_1"], axis=1)
+        .sort_index()
+    )
+
+    if sequenceregions_type == "transcript":
+        sequenceregions_df.drop("gene_id", inplace=True, axis=1)
+    else:
+        sequenceregions_df.drop("transcript_id", inplace=True, axis=1)
+
+    samplemeasurement_query = select(base.SampleMeasurement).filter(
+        base.SampleMeasurement.sample_id.in_(samples_df.index)
+    )
+
+    samplemeasurement_df = pd.read_sql(
+        samplemeasurement_query, session_redshift.bind
+    ).drop("id", axis=1)
+    samplemeasurement_df = samplemeasurement_df.loc[
+        samplemeasurement_df["sequenceregion_id"].isin(sequenceregions_df.index)
+    ].reset_index(drop=True)
+
+    if return_adata:
+        X_layers = samplemeasurement_df.pivot(
+            index="sample_id",
+            columns="sequenceregion_id",
+            values=["counts", "tpm"],
+        ).fillna(0.0)
+        adata = ad.AnnData(
+            X=X_layers["counts"],
+            var=sequenceregions_df.loc[X_layers["counts"].columns],
+            obs=samples_df.loc[X_layers.index],
+            layers={"tpm": X_layers["tpm"]},
+        )
+        return adata
+
+    return samplemeasurement_df, samples_df, sequenceregions_df
+
+
 def build_expression_atlas_summary_dfs(
     session: base._Session,
     public: bool = True,
@@ -865,7 +955,11 @@ def build_expression_atlas_summary_dfs(
 
     # Merge metadata into studies, contrasts.
     studies_df = (
-        studies_df.loc[:, ["velia_id", "pmid", "title", "description"]]
+        studies_df.loc[:, ["velia_id", "pmid", "title", "description", "created_at"]]
+        .rename(
+            {"created_at": "processed_at"},
+            axis=1,
+        )
         .merge(
             samples_df.loc[:, ["velia_id", "primary_tissue", "primary_disease"]],
             on="velia_id",
@@ -879,8 +973,9 @@ def build_expression_atlas_summary_dfs(
     contrasts_df = (
         contrasts_df.loc[
             contrasts_df["contrast_side"] == "left",
-            ["velia_id", "contrast_name", "srx_id"],
+            ["velia_id", "contrast_name", "srx_id", "created_at"],
         ]
+        .rename({"created_at": "processed_at"}, axis=1)
         .merge(
             samples_df.loc[
                 :, ["velia_id", "primary_tissue", "primary_disease", "srx_id"]
@@ -888,7 +983,16 @@ def build_expression_atlas_summary_dfs(
             on=["velia_id", "srx_id"],
             how="left",
         )
-        .loc[:, ["velia_id", "contrast_name", "primary_tissue", "primary_disease"]]
+        .loc[
+            :,
+            [
+                "velia_id",
+                "contrast_name",
+                "primary_tissue",
+                "primary_disease",
+                "processed_at",
+            ],
+        ]
         .explode("primary_disease")
         .drop_duplicates()
         .reset_index(drop=True)
@@ -902,7 +1006,11 @@ def build_expression_atlas_summary_dfs(
             "primary_tissue",
             "primary_disease",
             "primary_condition",
+            "created_at",
         ],
-    ]
+    ].rename(
+        {"created_at": "processed_at"},
+        axis=1,
+    )
 
     return studies_df, contrasts_df, samples_df
