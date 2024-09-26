@@ -19,5 +19,6 @@ setup(
         "s3fs",
         "anndata==0.9.2",
         "defusedxml",
+        "tqdm",
     ],
 )

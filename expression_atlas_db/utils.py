@@ -363,12 +363,15 @@ class ExperimentParser:
             use_columns = de_columns.copy()
             if "control_mean" in de_columns and "case_mean" in de_columns:
                 try:
-                    control_loc, case_loc = np.where(
-                        [
-                            c.endswith("meannormedcounts")
-                            for c in adata.uns["stat_results"][c].columns
-                        ]
-                    )[0]
+                    left_key = f"{adata.uns['contrasts'][c][0]}_{adata.uns['contrasts'][c][1]}_meannormedcounts"
+                    right_key = f"{adata.uns['contrasts'][c][0]}_{adata.uns['contrasts'][c][2]}_meannormedcounts"
+
+                    control_loc = np.where(
+                        (adata.uns["stat_results"][c].columns == right_key).tolist()
+                    )[0][0]
+                    case_loc = np.where(
+                        (adata.uns["stat_results"][c].columns == left_key).tolist()
+                    )[0][0]
                     use_columns[use_columns.index("control_mean")] = adata.uns[
                         "stat_results"
                     ][c].columns[control_loc]

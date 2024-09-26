@@ -815,6 +815,12 @@ def build_study_adata_components(
     studies: List[str],
     sequenceregions_type: Literal["gene", "transcript"],
     return_adata: bool = False,
+    keep_fields: List[str] = [
+        "sample_condition_1",
+        "sample_condition_2",
+        "sample_type_1",
+        "sample_type_2",
+    ],
 ) -> Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], ad.AnnData]:
     """Queries against both databases to fetch entries out of the differentialexpression
     table. First, queries the contrast and sequenceregion tables in the postgres/sqlite db,
@@ -827,6 +833,7 @@ def build_study_adata_components(
         studies (List[str]): List of velia_ids to query against db.
         sequenceregions_type (Literal["gene", "transcript"]): Filter var by gene or transcript.
         return_adata (bool): Convert to adata or return long df, obs df, var df.
+        keep_fields (List[str]): Keys to unpack out of fields column.
     Returns:
         (Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], ad.AnnData]):
             long df, obs df, var df or adata.
@@ -844,13 +851,7 @@ def build_study_adata_components(
             samples_df["fields"].apply(
                 lambda x: unpack_fields(
                     x,
-                    lambda x: x
-                    in (
-                        "sample_condition_1",
-                        "sample_condition_2",
-                        "sample_type_1",
-                        "sample_type_2",
-                    ),
+                    lambda x: x in keep_fields,
                 )
             ),
         ],

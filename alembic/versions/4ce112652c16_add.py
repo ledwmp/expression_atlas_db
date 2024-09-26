@@ -1,8 +1,8 @@
 """add
 
-Revision ID: 727b57b66d42
-Revises: 04b85fd1cb14
-Create Date: 2024-03-19 00:23:20.624019
+Revision ID: 4ce112652c16
+Revises: cdf22046d53d
+Create Date: 2024-09-12 15:06:09.616696
 
 """
 
@@ -15,8 +15,8 @@ import sqlalchemy as sa
 from expression_atlas_db import base, load_db, settings
 
 # revision identifiers, used by Alembic.
-revision: str = "727b57b66d42"
-down_revision: Union[str, None] = "04b85fd1cb14"
+revision: str = "4ce112652c16"
+down_revision: Union[str, None] = "cdf22046d53d"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

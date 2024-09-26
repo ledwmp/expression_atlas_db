@@ -5,6 +5,7 @@ Revises: 2fab4bc3bd56
 Create Date: 2024-06-05 21:11:47.010961
 
 """
+
 from typing import Sequence, Union, Dict
 
 from alembic import op
@@ -14,21 +15,22 @@ import sqlalchemy as sa
 from expression_atlas_db import base, load_db, settings
 
 # revision identifiers, used by Alembic.
-revision: str = '163bea0e42b4'
-down_revision: Union[str, None] = '2fab4bc3bd56'
+revision: str = "163bea0e42b4"
+down_revision: Union[str, None] = "2fab4bc3bd56"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-def upgrade(engine_name: str, db_urls: Dict[str,str]) -> None:
+def upgrade(engine_name: str, db_urls: Dict[str, str]) -> None:
     base.DataSet.set_alembic(revision)
-    if engine_name == 'redshift':
+    if engine_name == "redshift":
         return
-    session = base.configure(db_urls['postgres'])()
-    session_redshift = base.configure(db_urls['redshift'])()
+    session = base.configure(db_urls["postgres"])()
+    session_redshift = base.configure(db_urls["redshift"])()
     import s3fs
-    s3 = s3fs.S3FileSystem()    
-    study_id = 'GSE121212'
+
+    s3 = s3fs.S3FileSystem()
+    study_id = "GSE121212"
     load_db.update_study(
         study_id,
         session,
@@ -42,11 +44,11 @@ def upgrade(engine_name: str, db_urls: Dict[str,str]) -> None:
     study[0].public = True
     session.commit()
     load_db.write_studies_qc(
-        connection_string=db_urls['postgres'],
+        connection_string=db_urls["postgres"],
     )
 
 
-def downgrade(engine_name: str, db_urls: Dict[str,str]) -> None:
-    if engine_name == 'redshift':
+def downgrade(engine_name: str, db_urls: Dict[str, str]) -> None:
+    if engine_name == "redshift":
         return
     pass
