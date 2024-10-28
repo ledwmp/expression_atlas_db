@@ -27,6 +27,11 @@ class GTFParser:
         self.genome_accession = None
         self.parse_gtf(self.gtf_path, drop_duplicate_id=drop_duplicate_id)
 
+    @property
+    def assembly_id(self) -> str:
+        """ """
+        return self.genome_build
+
     def parse_gtf(self, gtf_path: Path, drop_duplicate_id: bool = False) -> None:
         """Read GTF from file and create table structures.
 
@@ -104,13 +109,16 @@ class GTFParser:
 
     @staticmethod
     def parse_gtf_line(
-        gtf_line: str, no_chr: bool = True
+        gtf_line: str,
+        no_chr: bool = True,
+        rename_gene_type: bool = True,
     ) -> Tuple[Dict, Dict[str, str]]:
         """Parse gtf line and return fields.
 
         Args:
             gtf_line (str): raw gtf line
             no_chr (bool): flag to remove chr from chromosome names.
+            rename_gene_type (bool): If gene_biotype not present in info, set value of gene_biotype key to gene_type value.
 
         Returns:
             (Tuple[Dict, Dict[str,str]]): tuple of dict of fields, dict of accessory line info.
@@ -145,11 +153,16 @@ class GTFParser:
             .replace('"', "")
             for i in info.strip(";\n").split(";")
         }
+        if rename_gene_type:
+            if "gene_biotype" not in infos.keys():
+                infos["gene_biotype"] = infos.get("gene_type")
         return fields, infos
 
 
 class ExperimentParser:
     """ """
+
+    _assembly_id_default = "veliadb_v0c"
 
     def __init__(
         self,
@@ -163,6 +176,9 @@ class ExperimentParser:
         """
         self.velia_study_id = velia_study_id
         self.velia_study_loc = exp_loc / velia_study_id
+        self._exp_loc = exp_loc
+
+        self._assembly_id = None
 
         self._s3_enabled = False
         self._s3fs = None
@@ -174,6 +190,14 @@ class ExperimentParser:
 
         self._adata_gene = None
         self._adata_transcript = None
+
+    @property
+    def assembly_id(self) -> str:
+        return (
+            f"veliadb_{self._assembly_id}"
+            if self._assembly_id
+            else self._assembly_id_default
+        )
 
     @property
     def file_timestamps(self) -> str:
@@ -274,6 +298,21 @@ class ExperimentParser:
         """Calls load_adata to popupate the _adata_gene and _adata_transcript attributes."""
         self._adata_gene = self.load_adata(adata_type="gene")
         self._adata_transcript = self.load_adata(adata_type="transcript")
+        self.resolve_assembly_id()
+
+    def resolve_assembly_id(self) -> None:
+        """Resolves location of folder for experiment, assigns assembly id based on location in s3/local."""
+        if not self._s3_enabled:
+            if "*" in str(self._exp_loc):
+                raise Exception("Cannot have wildcard in local exp_loc.")
+            else:
+                self._assembly_id = self._exp_loc.parts[-1]
+        else:
+            s3_path = str(Path(self.velia_study_loc)).replace("s3:/", "s3://")
+            self._assembly_id = Path(self._s3fs.glob(s3_path)[0]).parts[-2]
+
+        if self._assembly_id == "v1":
+            self._assembly_id = "v0c"
 
     def load_adata(self, adata_type: str = "gene") -> ad.AnnData:
         """Stats and loads the adata objects specified at velia_study_loc and returns the adata object.

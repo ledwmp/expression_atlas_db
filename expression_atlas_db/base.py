@@ -27,7 +27,7 @@ class SequenceRegion(Base):
     assembly_id = Column(String(200))
     type = Column(String(30))
 
-    __table_args__ = (UniqueConstraint("veliadb_id", "type"), {})
+    __table_args__ = (UniqueConstraint("veliadb_id", "type", "assembly_id"), {})
     __mapper_args__ = {
         "polymorphic_identity": "sequence_region",
         "polymorphic_on": "type",
@@ -50,9 +50,9 @@ class Gene(SequenceRegion):
     )
 
     __table_args__ = (
-        UniqueConstraint(
-            "gene_id",
-        ),
+        # UniqueConstraint(
+        #     "gene_id",
+        # ),
         {},
     )
     __table_args__ = (Index("idx_gene_id_gene", "gene_id"), {})
@@ -71,9 +71,9 @@ class Transcript(SequenceRegion):
     gene = relationship("Gene", foreign_keys=gene_id)
 
     __table_args__ = (
-        UniqueConstraint(
-            "transcript_id",
-        ),
+        # UniqueConstraint(
+        #     "transcript_id",
+        # ),
         {},
     )
     __table_args__ = (Index("idx_transcript_id_transcript", "transcript_id"), {})

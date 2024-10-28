@@ -6,6 +6,7 @@ import logging
 
 import pandas as pd
 import numpy as np
+import sqlalchemy
 from sqlalchemy import select, update, bindparam
 
 from expression_atlas_db import base, settings, queries, load_db, utils
@@ -14,11 +15,13 @@ from expression_atlas_db import base, settings, queries, load_db, utils
 class TestBase(unittest.TestCase):
     """ """
 
-    _test_gtf = f"{Path('/'.join(Path(__file__).parts[:-1]), 'test_data', 'test.gtf')}"
+    _test_gtf = (
+        f"{Path('/'.join(Path(__file__).parts[:-1]), 'test_data', 'veliadb_test.gtf')}"
+    )
     _test_db_connection_string = (
         f"sqlite:///{Path('/'.join(Path(__file__).parts[:-1]), 'test_data', 'test.db')}"
     )
-    _test_data_loc = f"{Path('/'.join(Path(__file__).parts[:-1]), 'test_data')}"
+    _test_data_loc = f"{Path('/'.join(Path(__file__).parts[:-1]), 'test_data', 'test')}"
     _test_staging_loc = f"{Path('/'.join(Path(__file__).parts[:-1]), 'test_data')}"
 
     @classmethod
@@ -67,6 +70,8 @@ class TestFullBase(TestBase):
 class TestGTF(TestBase):
     """ """
 
+    _test_v2_gtf = f"{Path('/'.join(Path(__file__).parts[:-1]), 'test_data', 'veliadb_test_v2.gtf')}"
+
     def setUp(self):
         """ """
         self.gtf = utils.GTFParser(self._test_gtf)
@@ -82,7 +87,9 @@ class TestGTF(TestBase):
 
     def testLoad(self):
         """ """
-        pass
+        self.assertEqual(self.session.query(base.Gene).count(), 2119)
+        self.assertEqual(self.session.query(base.Transcript).count(), 9111)
+        self.assertEqual(self.session.query(base.SequenceRegion).count(), 11230)
 
     def testRelationship(self):
         """ """
@@ -91,6 +98,65 @@ class TestGTF(TestBase):
     def testGTFParser(self):
         """ """
         pass
+
+    def testLoadVersionedGTF(self):
+        """ """
+        v2_gtf = utils.GTFParser(self._test_v2_gtf)
+        load_db.bulk_insert_gtf(self.session, v2_gtf)
+
+        self.assertEqual(
+            self.session.query(base.Gene)
+            .filter(base.Gene.assembly_id == "veliadb_test")
+            .count(),
+            2119,
+        )
+        self.assertEqual(
+            self.session.query(base.Transcript)
+            .filter(base.Transcript.assembly_id == "veliadb_test")
+            .count(),
+            9111,
+        )
+        self.assertEqual(
+            self.session.query(base.Gene)
+            .filter(base.Gene.assembly_id == "veliadb_test_v2")
+            .count(),
+            2119,
+        )
+        self.assertEqual(
+            self.session.query(base.Transcript)
+            .filter(base.Transcript.assembly_id == "veliadb_test_v2")
+            .count(),
+            9111,
+        )
+
+        # Try to re-load the same base gtf, should throw an Integrity Error based on a unique-constraint exception.
+        try:
+            v1_gtf = utils.GTFParser(self._test_gtf)
+            load_db.bulk_insert_gtf(self.session, v1_gtf)
+        except sqlalchemy.exc.IntegrityError as e:
+            self.session.rollback()
+        except Exception as e:
+            raise e
+
+        # Test versioned queries against the transcript table.
+        all_transcript_srs = queries.fetch_sequenceregions(
+            self.session,
+            sequenceregions_type="transcript",
+        )
+        v1_transcript_srs = queries.fetch_sequenceregions(
+            self.session,
+            sequenceregions_type="transcript",
+            assembly_id="veliadb_test",
+        )
+        v2_transcript_srs = queries.fetch_sequenceregions(
+            self.session,
+            sequenceregions_type="transcript",
+            assembly_id="veliadb_test_v2",
+        )
+        self.assertEqual(all_transcript_srs.shape[0], 18222)
+        self.assertEqual(all_transcript_srs["transcript_id"].nunique(), 9111)
+        self.assertEqual(v1_transcript_srs.shape[0], 9111)
+        self.assertEqual(v2_transcript_srs.shape[0], 9111)
 
 
 class TestMetaDataFetcher(TestBase):
@@ -433,14 +499,18 @@ class TestUpdateDifferentialExpression(TestFullBase):
     def updateDifferentialExpression(self):
         """ """
 
-        study = self.session.query(base.Study).filter(base.Study.velia_id == self._update_study).first()
+        study = (
+            self.session.query(base.Study)
+            .filter(base.Study.velia_id == self._update_study)
+            .first()
+        )
 
         sequenceregions = {
             **{g.gene_id: g for g in self.session.query(base.Gene).all()},
             **{t.transcript_id: t for t in self.session.query(base.Transcript).all()},
         }
 
-        logging.info(f'Loading adatas {self._update_study}...')
+        logging.info(f"Loading adatas {self._update_study}...")
         exp = utils.ExperimentParser(self._update_study, Path(self._test_data_loc))
         exp.load_adatas()
 
@@ -455,21 +525,24 @@ class TestUpdateDifferentialExpression(TestFullBase):
         # Load gene contrasts.
 
         g_exp_dict = exp.prepare_differentialexpression(
-            measurement_type="gene", 
+            measurement_type="gene",
             de_columns=de_columns,
         )
 
         for c, (c_df, _, _) in g_exp_dict.items():
-        
+
             logging.info(f"Modifying contrast {c} from study {study.velia_id}.")
 
-            contrast = self.session.query(base.Contrast).filter(
-                base.Contrast.contrast_name == c
-            ).filter(
-                base.Contrast.study_id == study.id
-            ).first()
+            contrast = (
+                self.session.query(base.Contrast)
+                .filter(base.Contrast.contrast_name == c)
+                .filter(base.Contrast.study_id == study.id)
+                .first()
+            )
 
-            table_fh = Path(self._test_staging_loc) / f"gene_de.{study.id}.{contrast.id}.csv"
+            table_fh = (
+                Path(self._test_staging_loc) / f"gene_de.{study.id}.{contrast.id}.csv"
+            )
 
             load_db.create_differentialexpression(
                 c_df,
@@ -479,95 +552,119 @@ class TestUpdateDifferentialExpression(TestFullBase):
                 fh=table_fh,
             )
 
-            # Load the fixed entries to df. 
+            # Load the fixed entries to df.
 
             contrast_df = pd.read_csv(
                 table_fh,
-                names=["contrast_id", "sequenceregion_id"]+de_columns,
-            ).loc[
-                :,["contrast_id", "sequenceregion_id", "control_mean", "case_mean"]
-            ]
+                names=["contrast_id", "sequenceregion_id"] + de_columns,
+            ).loc[:, ["contrast_id", "sequenceregion_id", "control_mean", "case_mean"]]
 
-            # Load out of differentialexpression table directly. 
+            # Load out of differentialexpression table directly.
 
             unchanged_contrast_df = pd.read_sql(
-                select(base.DifferentialExpression).filter(
-                    base.DifferentialExpression.contrast_id == contrast.id
-                ).filter(
+                select(base.DifferentialExpression)
+                .filter(base.DifferentialExpression.contrast_id == contrast.id)
+                .filter(
                     base.DifferentialExpression.sequenceregion_id.in_(
-                        contrast_df['sequenceregion_id'].tolist()
+                        contrast_df["sequenceregion_id"].tolist()
                     )
                 ),
                 self.session.bind,
-            ).set_index('id')
+            ).set_index("id")
 
             pre_unmodified_contrast_df = pd.read_sql(
-                select(base.DifferentialExpression).filter(
-                    base.DifferentialExpression.contrast_id == contrast.id
-                ).filter(
+                select(base.DifferentialExpression)
+                .filter(base.DifferentialExpression.contrast_id == contrast.id)
+                .filter(
                     base.DifferentialExpression.sequenceregion_id.not_in(
-                        contrast_df['sequenceregion_id'].tolist()
+                        contrast_df["sequenceregion_id"].tolist()
                     )
                 ),
                 self.session.bind,
-            ).set_index('id')
+            ).set_index("id")
 
-            contrast_df['control_mean'] = contrast_df['control_mean']*10
-            contrast_df['case_mean'] = contrast_df['case_mean']*10
+            contrast_df["control_mean"] = contrast_df["control_mean"] * 10
+            contrast_df["case_mean"] = contrast_df["case_mean"] * 10
 
             contrast_df.columns = [f"b__{n}" for n in contrast_df.columns]
-            
+
             for i in range(0, contrast_df.shape[0], 100):
                 self.session.connection().execute(
-                    update(base.DifferentialExpression).where(
-                        base.DifferentialExpression.contrast_id == bindparam("b__contrast_id")
-                    ).where(
-                        base.DifferentialExpression.sequenceregion_id == bindparam("b__sequenceregion_id")
-                    ).values(
-                        {'control_mean' : bindparam('b__control_mean'), 'case_mean' : bindparam('b__case_mean')}
+                    update(base.DifferentialExpression)
+                    .where(
+                        base.DifferentialExpression.contrast_id
+                        == bindparam("b__contrast_id")
+                    )
+                    .where(
+                        base.DifferentialExpression.sequenceregion_id
+                        == bindparam("b__sequenceregion_id")
+                    )
+                    .values(
+                        {
+                            "control_mean": bindparam("b__control_mean"),
+                            "case_mean": bindparam("b__case_mean"),
+                        }
                     ),
-                    contrast_df.iloc[i:i+100].to_dict('records'),
+                    contrast_df.iloc[i : i + 100].to_dict("records"),
                 )
 
             self.session.commit()
 
             changed_contrast_df = pd.read_sql(
-                select(base.DifferentialExpression).filter(
-                    base.DifferentialExpression.contrast_id == contrast.id
-                ).filter(
+                select(base.DifferentialExpression)
+                .filter(base.DifferentialExpression.contrast_id == contrast.id)
+                .filter(
                     base.DifferentialExpression.sequenceregion_id.in_(
-                        contrast_df['b__sequenceregion_id'].tolist()
+                        contrast_df["b__sequenceregion_id"].tolist()
                     )
                 ),
                 self.session.bind,
-            ).set_index('id')
+            ).set_index("id")
 
             post_unmodified_contrast_df = pd.read_sql(
-                select(base.DifferentialExpression).filter(
-                    base.DifferentialExpression.contrast_id == contrast.id
-                ).filter(
+                select(base.DifferentialExpression)
+                .filter(base.DifferentialExpression.contrast_id == contrast.id)
+                .filter(
                     base.DifferentialExpression.sequenceregion_id.not_in(
-                        contrast_df['b__sequenceregion_id'].tolist()
+                        contrast_df["b__sequenceregion_id"].tolist()
                     )
                 ),
                 self.session.bind,
-            ).set_index('id')
-   
+            ).set_index("id")
+
             self.assertEqual(
-                pre_unmodified_contrast_df.loc[pre_unmodified_contrast_df.index, "control_mean"].tolist(),
-                post_unmodified_contrast_df.loc[pre_unmodified_contrast_df.index, "control_mean"].tolist(),
+                pre_unmodified_contrast_df.loc[
+                    pre_unmodified_contrast_df.index, "control_mean"
+                ].tolist(),
+                post_unmodified_contrast_df.loc[
+                    pre_unmodified_contrast_df.index, "control_mean"
+                ].tolist(),
             )
             self.assertEqual(
-                pre_unmodified_contrast_df.loc[pre_unmodified_contrast_df.index, "case_mean"].tolist(),
-                post_unmodified_contrast_df.loc[pre_unmodified_contrast_df.index, "case_mean"].tolist(),
+                pre_unmodified_contrast_df.loc[
+                    pre_unmodified_contrast_df.index, "case_mean"
+                ].tolist(),
+                post_unmodified_contrast_df.loc[
+                    pre_unmodified_contrast_df.index, "case_mean"
+                ].tolist(),
             )
             self.assertEqual(
-                changed_contrast_df.loc[changed_contrast_df.index, "control_mean"].tolist(),
-                (unchanged_contrast_df.loc[changed_contrast_df.index, "control_mean"]*10).tolist(),
+                changed_contrast_df.loc[
+                    changed_contrast_df.index, "control_mean"
+                ].tolist(),
+                (
+                    unchanged_contrast_df.loc[changed_contrast_df.index, "control_mean"]
+                    * 10
+                ).tolist(),
             )
             self.assertEqual(
-                changed_contrast_df.loc[changed_contrast_df.index, "case_mean"].tolist(),
-                (unchanged_contrast_df.loc[changed_contrast_df.index, "case_mean"]*10).tolist(),
+                changed_contrast_df.loc[
+                    changed_contrast_df.index, "case_mean"
+                ].tolist(),
+                (
+                    unchanged_contrast_df.loc[changed_contrast_df.index, "case_mean"]
+                    * 10
+                ).tolist(),
             )
 
 
