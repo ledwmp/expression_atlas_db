@@ -1103,7 +1103,7 @@ def add_studyqueue(
         processed (bool): Whether processing is complete.
 
     Returns:
-        base.StudyQueue: The created queue entry.
+        studyqueue (base.StudyQueue): The created queue entry.
     """
     studyqueue = base.StudyQueue(
         velia_id=velia_study,
