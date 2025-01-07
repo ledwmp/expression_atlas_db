@@ -43,10 +43,10 @@ class SequenceRegion(Base):
     This is the parent class for Gene and Transcript.
 
     Attributes:
-        id: Primary key
-        veliadb_id: Reference ID in the Velia database
-        assembly_id: Genome assembly identifier
-        type: Type of sequence region (used for polymorphic identity)
+        id (int): Primary key
+        veliadb_id (int): Reference ID in the Velia database
+        assembly_id (str): Genome assembly identifier
+        type (str): Type of sequence region (used for polymorphic identity)
     """
 
     __tablename__ = "sequenceregion"
@@ -70,9 +70,10 @@ class Gene(SequenceRegion):
     relationships with associated transcripts.
 
     Attributes:
-        gene_id: Unique identifier for the gene
-        gene_biotype: Biological type of the gene
-        transcripts: Related transcript records
+        id (int): Primary key referencing SequenceRegion
+        gene_id (str): Unique identifier for the gene
+        gene_biotype (str): Biological type of the gene
+        transcripts (List[Transcript]): Related transcript records
     """
 
     __tablename__ = "gene"
@@ -100,10 +101,11 @@ class Transcript(SequenceRegion):
     a relationship with its parent gene.
 
     Attributes:
-        transcript_id: Unique identifier for the transcript
-        gene_id: Foreign key to the parent gene
-        gene_biotype: Biological type of the gene
-        gene: Relationship to the parent gene record
+        id (int): Primary key referencing SequenceRegion
+        transcript_id (str): Unique identifier for the transcript
+        gene_id (int): Foreign key to the parent gene
+        gene_biotype (str): Biological type of the gene
+        gene (Gene): Relationship to the parent gene record
     """
 
     __tablename__ = "transcript"
@@ -127,10 +129,10 @@ class DataSet(Base):
     with versioning support through alembic.
 
     Attributes:
-        id: Primary key
-        alembic_id: Database migration version identifier
-        created_at: Timestamp of record creation
-        type: Type of dataset (used for polymorphic identity)
+        id (int): Primary key
+        alembic_id (str): Database migration version identifier
+        created_at (datetime): Timestamp of record creation
+        type (str): Type of dataset (used for polymorphic identity)
     """
 
     __tablename__ = "dataset"
@@ -142,7 +144,7 @@ class DataSet(Base):
         """Set the alembic revision ID for version tracking.
 
         Args:
-            alembic_revision_id: The revision ID from alembic
+            alembic_revision_id (str): The revision ID from alembic
         """
         cls.alembic_revision_id = alembic_revision_id
 
@@ -161,12 +163,26 @@ class StudyQueue(DataSet):
     their source identifiers, quality metrics, and processing status.
 
     Attributes:
-        velia_id: Reference ID in the Velia database
-        geo_id: GEO database identifier
-        srp_id: SRA project identifier
-        status: Current processing status
-        public: Whether the study is publicly accessible
-        processed: Whether processing is complete
+        id (int): Primary key referencing DataSet
+        velia_id (str): Reference ID in the Velia database
+        geo_id (str): GEO database identifier
+        srp_id (str): SRA project identifier
+        study_id (int): Study identifier
+        pmid (str): PubMed ID
+        status (str): Current processing status
+        quality (str): Quality assessment
+        technology (str): Sequencing technology
+        title (str): Study title
+        description (str): Study description
+        category (str): Study category
+        requestor (str): Study requestor
+        priority (str): Processing priority
+        contrast (str): Contrast information
+        disease (str): Disease information
+        tissue (str): Tissue information
+        comments (str): Additional comments
+        public (bool): Whether the study is publicly accessible
+        processed (bool): Whether processing is complete
     """
 
     __tablename__ = "studyqueue"
@@ -201,12 +217,21 @@ class Study(DataSet):
     and relationships to samples, contrasts, and sample contrasts.
 
     Attributes:
-        velia_id: Reference ID in the Velia database
-        geo_id: GEO database identifier
-        srp_id: SRA project identifier
-        samples: Related sample records
-        contrasts: Related contrast records
-        samplecontrasts: Related sample-contrast mapping records
+        id (int): Primary key referencing DataSet
+        velia_id (str): Reference ID in the Velia database
+        geo_id (str): GEO database identifier
+        srp_id (str): SRA project identifier
+        bio_id (str): Biological identifier
+        pmid (str): PubMed ID
+        public (bool): Whether study is publicly accessible
+        quality (str): Quality assessment
+        timestamps (str): Processing timestamps
+        sizes (str): Data sizes
+        title (str): Study title
+        description (str): Study description
+        samples (List[Sample]): Related sample records
+        contrasts (List[Contrast]): Related contrast records
+        samplecontrasts (List[SampleContrast]): Related sample-contrast mapping records
     """
 
     __tablename__ = "study"
@@ -251,10 +276,13 @@ class Sample(DataSet):
     and custom fields for additional metadata.
 
     Attributes:
-        study_id: Foreign key to the parent study
-        srx_id: SRA experiment identifier
-        atlas_group: Sample grouping identifier
-        fields: JSON field containing additional metadata
+        id (int): Primary key referencing DataSet
+        study_id (int): Foreign key to the parent study
+        srx_id (str): SRA experiment identifier
+        atlas_group (str): Sample grouping identifier
+        fields (dict): JSON field containing additional metadata
+        study (Study): Parent study relationship
+        samplecontrasts (List[SampleContrast]): Related sample-contrast mappings
     """
 
     __tablename__ = "sample"
@@ -287,11 +315,16 @@ class Contrast(DataSet):
     two specific conditions within a study.
 
     Attributes:
-        study_id: Foreign key to the parent study
-        contrast_name: Name identifying the contrast
-        sample_condition_key: Key used to group samples
-        left_condition_level: Control condition identifier
-        right_condition_level: Test condition identifier
+        id (int): Primary key referencing DataSet
+        study_id (int): Foreign key to the parent study
+        contrast_name (str): Name identifying the contrast
+        sample_condition_key (str): Key used to group samples
+        left_condition_level (str): Control condition identifier
+        right_condition_level (str): Test condition identifier
+        left_condition_display (str): Display name for control condition
+        right_condition_display (str): Display name for test condition
+        study (Study): Parent study relationship
+        samplecontrasts (List[SampleContrast]): Related sample-contrast mappings
     """
 
     __tablename__ = "contrast"
@@ -329,11 +362,17 @@ class SampleContrast(DataSet):
     (case/control) the sample represents in the contrast.
 
     Attributes:
-        sample_id: Foreign key to the sample
-        contrast_id: Foreign key to the contrast
-        study_id: Foreign key to the study
-        condition_level: Sample condition identifier
-        contrast_side: Whether sample is case or control
+        id (int): Primary key referencing DataSet
+        sample_id (int): Foreign key to the sample
+        contrast_id (int): Foreign key to the contrast
+        study_id (int): Foreign key to the study
+        sample_condition_key (str): Sample condition grouping key
+        condition_level (str): Sample condition identifier
+        condition_display (str): Display name for condition
+        contrast_side (str): Whether sample is case or control
+        sample (Sample): Related sample record
+        contrast (Contrast): Related contrast record
+        study (Study): Related study record
     """
 
     __tablename__ = "samplecontrast"
@@ -367,12 +406,21 @@ class DifferentialExpression(Base):
     between conditions in a contrast.
 
     Attributes:
-        contrast_id: Foreign key to the contrast
-        sequenceregion_id: Foreign key to the gene/transcript
-        basemean: Mean expression level
-        log2foldchange: Log2 fold change between conditions
-        pvalue: Statistical significance
-        padj: Adjusted p-value
+        id (int): Primary key
+        contrast_id (int): Foreign key to the contrast
+        sequenceregion_id (int): Foreign key to the gene/transcript
+        basemean (float): Mean expression level
+        log2foldchange (float): Log2 fold change between conditions
+        lfcse (float): Log fold change standard error
+        stat (float): Test statistic
+        pvalue (float): Statistical significance
+        log10_pvalue (float): -Log10 transformed p-value
+        padj (float): Adjusted p-value
+        log10_padj (float): -Log10 transformed adjusted p-value
+        control_mean (float): Mean expression in control condition
+        case_mean (float): Mean expression in case condition
+        contrast (Contrast): Related contrast record
+        sequenceregion (SequenceRegion): Related sequence region record
     """
 
     __tablename__ = "differentialexpression"
@@ -417,11 +465,15 @@ class SampleMeasurement(Base):
     genes/transcripts in specific samples.
 
     Attributes:
-        sample_id: Foreign key to the sample
-        sequenceregion_id: Foreign key to the gene/transcript
-        counts: Raw read counts
-        normed_counts: Normalized read counts
-        tpm: Transcripts Per Million
+        id (int): Primary key
+        sample_id (int): Foreign key to the sample
+        sequenceregion_id (int): Foreign key to the gene/transcript
+        counts (float): Raw read counts
+        normed_counts (float): Normalized read counts
+        tpm (float): Transcripts Per Million
+        normed_counts_transform (float): Transformed normalized counts
+        sample (Sample): Related sample record
+        sequenceregion (SequenceRegion): Related sequence region record
     """
 
     __tablename__ = "samplemeasurement"
@@ -465,12 +517,12 @@ def configure(
     """Configure and create a database session.
 
     Args:
-        connection_str: Database connection string
-        echo: Enable SQL query logging. Defaults to False.
-        read_only: Set connection to read-only mode. Defaults to False.
+        connection_str (str): Database connection string
+        echo (bool): Enable SQL query logging. Defaults to False.
+        read_only (bool): Set connection to read-only mode. Defaults to False.
 
     Returns:
-        Configured database session
+        Session (_Session): Configured database session
     """
     engine = create_engine(
         connection_str,
