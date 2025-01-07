@@ -59,7 +59,7 @@ configure_logger(
     f"{time.strftime('%Y%m%d_%H%M%S')}_expression_atlas_db.log", level=DEFAULT_LOG_LEVEL
 )
 
-from expression_atlas_db import base, settings, redshift_stmts, queries
+from expression_atlas_db import base, settings, stmts, queries
 from expression_atlas_db.utils import GTFParser, ExperimentParser, MetaDataFetcher
 
 # Column definitions
@@ -1349,7 +1349,7 @@ def load_db(
     if drop_all:
         logging.info("Dropping the database.")
         if use_redshift:
-            session_redshift.execute(redshift_stmts.delete_stmt_all)
+            session_redshift.execute(stmts.delete_stmt_all)
             session_redshift.commit()
             base.Base.metadata.drop_all(bind=session.bind)
         else:
@@ -1357,7 +1357,7 @@ def load_db(
 
         logging.info("Creating the database.")
         if use_redshift:
-            session_redshift.execute(redshift_stmts.create_stmt_measurement)
+            session_redshift.execute(stmts.create_stmt_redshift_tables)
             session_redshift.commit()
             base.Base.metadata.create_all(bind=session.bind)
         else:
@@ -1370,7 +1370,7 @@ def load_db(
     elif drop_dataset:
         logging.info("Dropping the dataset tables.")
         if use_redshift:
-            session_redshift.execute(redshift_stmts.delete_stmt_all)
+            session_redshift.execute(stmts.delete_stmt_all)
             session_redshift.commit()
             for n, t in list(base.Base.metadata.tables.items())[::-1]:
                 if n in ("sequenceregion", "gene", "transcript"):
@@ -1382,7 +1382,7 @@ def load_db(
                     continue
                 t.drop(bind=session.bind, checkfirst=True)
         if use_redshift:
-            session_redshift.execute(redshift_stmts.create_stmt_measurement)
+            session_redshift.execute(stmts.create_stmt_redshift_tables)
             session_redshift.commit()
             base.Base.metadata.create_all(bind=session.bind, checkfirst=True)
         else:
