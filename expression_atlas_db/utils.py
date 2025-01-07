@@ -1,5 +1,23 @@
+"""Utility classes for parsing and fetching biological data from various sources.
+
+This module provides classes for handling different types of biological data files and metadata:
+
+Classes:
+    GTFParser: Parser for GTF (Gene Transfer Format) files that extracts gene and 
+               transcript information into structured DataFrames.
+    
+    ExperimentParser: Handles loading and processing of gene/transcript expression data 
+                     from AnnData files, including differential expression results.
+    
+    MetaDataFetcher: Retrieves and parses metadata from bioinformatics databases 
+                    (NCBI SRA, BioProject, ENA) using their respective APIs.
+
+The module is designed to work with the Expression Atlas database system and supports
+both local filesystem and S3 storage access for data files.
+"""
+
 import sys
-from typing import List, Tuple, Dict, Union
+from typing import List, Tuple, Dict, Union, Optional
 from pathlib import Path
 from io import StringIO
 import time
@@ -18,9 +36,29 @@ from expression_atlas_db import settings
 
 
 class GTFParser:
-    """ """
+    """Parser for GTF (Gene Transfer Format) files.
 
-    def __init__(self, gtf_path: str, drop_duplicate_id: bool = False):
+    Reads and parses GTF files to extract gene and transcript information into structured
+    pandas DataFrames.
+
+    Attributes:
+        gtf_path (Path): Path to the GTF file
+        gtf_name (str): Name of the GTF file without extension
+        genome_build (str | None): Genome build identifier from GTF header
+        genome_accession (str | None): Genome accession from GTF header
+        transcript_df (pd.DataFrame): DataFrame containing transcript information
+        gene_df (pd.DataFrame): DataFrame containing gene information
+    """
+
+    def __init__(
+        self, gtf_path: Union[str, Path], drop_duplicate_id: bool = False
+    ) -> None:
+        """Initialize GTFParser with a GTF file path.
+
+        Args:
+            gtf_path (Union[str, Path]): Path to the GTF file
+            drop_duplicate_id (bool): If True, removes duplicate gene/transcript IDs keeping first occurrence
+        """
         self.gtf_path = Path(gtf_path)
         self.gtf_name = self.gtf_path.stem
         self.genome_build = None
@@ -31,8 +69,8 @@ class GTFParser:
         """Read GTF from file and create table structures.
 
         Args:
-            gtf_path (str): path to gtf file.
-            drop_duplicate_id (bool): veliadb has duplicated gene/transcript ids. Drop and keep first.
+            gtf_path (Path): Path to GTF file
+            drop_duplicate_id (bool): If True, removes duplicate gene/transcript IDs keeping first occurrence
         """
         transcripts = []
         genes = []
@@ -93,27 +131,23 @@ class GTFParser:
             transcript_df.drop_duplicates("transcript_id", inplace=True)
             gene_df.drop_duplicates("gene_id", inplace=True)
 
-        # if (transcript_df['transcript_id'].value_counts().values[0] > 1) | \
-        #     (transcript_df['veliadb_id'].value_counts().values[0] > 1) | \
-        #     (gene_df['gene_id'].value_counts().values[0] > 1) | \
-        #     (gene_df['veliadb_id'].value_counts().values[0] > 1):
-        #     raise ValueError('Duplicated gene/transcript/veliadb ids detected in gtf.')
-
         self.transcript_df = transcript_df.copy()
         self.gene_df = gene_df.copy()
 
     @staticmethod
     def parse_gtf_line(
         gtf_line: str, no_chr: bool = True
-    ) -> Tuple[Dict, Dict[str, str]]:
-        """Parse gtf line and return fields.
+    ) -> Tuple[Dict[str, Union[str, int]], Dict[str, str]]:
+        """Parse a single line from a GTF file.
 
         Args:
-            gtf_line (str): raw gtf line
-            no_chr (bool): flag to remove chr from chromosome names.
+            gtf_line (str): Raw line from GTF file
+            no_chr (bool): If True, removes 'chr' prefix from chromosome names and converts 'M' to 'MT'
 
         Returns:
-            (Tuple[Dict, Dict[str,str]]): tuple of dict of fields, dict of accessory line info.
+            Tuple[Dict[str, Union[str, int]], Dict[str, str]]: Tuple containing:
+                - Dictionary of GTF fields (chromosome, source, label, etc.)
+                - Dictionary of additional information from the GTF attributes column
         """
         chrom, source, label, start, end, score, strand, frame, info = gtf_line.split(
             "\t"
@@ -149,17 +183,32 @@ class GTFParser:
 
 
 class ExperimentParser:
-    """ """
+    """Parser for experimental data stored in AnnData format.
+
+    Handles loading and processing of gene and transcript expression data from AnnData files,
+    including differential expression results and sample measurements.
+
+    Attributes:
+        velia_study_id (str): Identifier for the study
+        velia_study_loc (Path): Location of AnnData files
+        _s3_enabled (bool): Whether S3 access is enabled
+        _s3fs (s3fs.core.S3FileSystem | None): S3 filesystem object if enabled
+        _transcript_ts (float | None): Timestamp of transcript data
+        _gene_ts (float | None): Timestamp of gene data
+        _transcript_size (int | None): Size of transcript data file
+        _gene_size (int | None): Size of gene data file
+        _adata_gene (ad.AnnData | None): Gene expression AnnData object
+        _adata_transcript (ad.AnnData | None): Transcript expression AnnData object
+    """
 
     def __init__(
-        self,
-        velia_study_id: str,
-        exp_loc: Path = Path(settings.test_experiment_loc),
-    ):
-        """
+        self, velia_study_id: str, exp_loc: Path = Path(settings.test_experiment_loc)
+    ) -> None:
+        """Initialize ExperimentParser with study ID and data location.
+
         Args:
-            velia_study_id (str): velia_study_id to load.
-            exp_loc (Path): Location of adatas to load.
+            velia_study_id (str): Study identifier to load
+            exp_loc (Path): Base location of AnnData files
         """
         self.velia_study_id = velia_study_id
         self.velia_study_loc = exp_loc / velia_study_id
@@ -177,15 +226,33 @@ class ExperimentParser:
 
     @property
     def file_timestamps(self) -> str:
+        """Get timestamps of gene and transcript files.
+
+        Returns:
+            str: Formatted string of gene/transcript timestamps
+        """
         return f"{self._gene_ts}/{self._transcript_ts}"
 
     @property
     def file_sizes(self) -> str:
+        """Get sizes of gene and transcript files.
+
+        Returns:
+            str: Formatted string of gene/transcript file sizes
+        """
         return f"{self._gene_size}/{self._transcript_size}"
 
     @property
     def samples(self) -> List[str]:
-        """ """
+        """Get list of sample identifiers.
+
+        Returns:
+            List[str]: List of sample IDs
+
+        Raises:
+            AttributeError: If AnnData objects not loaded
+            ValueError: If gene/transcript samples don't match
+        """
         if not self._adata_transcript or not self._adata_gene:
             raise AttributeError("Set adatas with load_adatas method.")
 
@@ -219,25 +286,36 @@ class ExperimentParser:
         return meta
 
     def enable_s3(self, s3fs: s3fs.core.S3FileSystem) -> None:
-        """Enables s3 usage.
+        """Enable S3 storage access.
 
         Args:
-            s3fs (s3fs.core.S3FileSystem): s3 object to access s3 buckets.
+            s3fs (s3fs.core.S3FileSystem): Configured S3 filesystem object
         """
         self._s3_enabled = True
         self._s3fs = s3fs
 
     def stat_adatas(self) -> None:
-        """Calls stat_adata on the gene and transcript adatas."""
+        """Get stats for both gene and transcript AnnData files.
+
+        Calls stat_adata on both gene and transcript data files to update their
+        respective timestamp and size attributes.
+        """
         self.stat_adata(glob_pattern="*dds_gene*")
         self.stat_adata(glob_pattern="*dds_transcript*")
 
     def stat_adata(self, glob_pattern: str) -> Union[str, Path]:
-        """Stat the adata found with glob_pattern and updates the transcript or gene _*_ts and
-        _*_size instance attributes reflecting the stat data.
+        """Get stats for a specific AnnData file.
+
+        Updates the transcript or gene timestamp and size attributes based on the file stats.
 
         Args:
-            glob_pattern (str): glob pattern used to glob gene or transcript adatas.
+            glob_pattern (str): Pattern to match either gene or transcript AnnData files
+
+        Returns:
+            Union[str, Path]: Path to the matched AnnData file
+
+        Raises:
+            FileNotFoundError: If no file matches the glob pattern
         """
         try:
             if not self._s3_enabled:
@@ -253,6 +331,7 @@ class ExperimentParser:
             raise FileNotFoundError(
                 f"AnnData with glob pattern: {glob_pattern} not found for study {self.velia_study_loc}."
             )
+
         if "transcript" in glob_pattern:
             if not self._s3_enabled:
                 self._transcript_ts = fh.stat().st_ctime
@@ -271,17 +350,26 @@ class ExperimentParser:
         return fh
 
     def load_adatas(self) -> None:
-        """Calls load_adata to popupate the _adata_gene and _adata_transcript attributes."""
+        """Load both gene and transcript AnnData objects.
+
+        Populates the _adata_gene and _adata_transcript attributes by calling load_adata
+        for each data type.
+        """
         self._adata_gene = self.load_adata(adata_type="gene")
         self._adata_transcript = self.load_adata(adata_type="transcript")
 
     def load_adata(self, adata_type: str = "gene") -> ad.AnnData:
-        """Stats and loads the adata objects specified at velia_study_loc and returns the adata object.
+        """Load a single AnnData object and update its stats.
 
         Args:
-            adata_type (str): Either "gene" or "transcript".
+            adata_type (str): Type of data to load ("gene" or "transcript")
+
         Returns:
-            adata (ad.AnnData) the anndata object holding the experiment.
+            ad.AnnData: Loaded AnnData object
+
+        Raises:
+            FileNotFoundError: If no matching AnnData file is found
+            ValueError: If adata_type is invalid
         """
         glob_pattern = f"*dds_{adata_type}*"
         try:
@@ -298,6 +386,7 @@ class ExperimentParser:
             raise FileNotFoundError(
                 f"AnnData with glob pattern: {glob_pattern} not found for study {self.velia_study_loc}."
             )
+
         if adata_type == "transcript":
             if not self._s3_enabled:
                 self._transcript_ts = fh.stat().st_ctime
@@ -461,19 +550,26 @@ class ExperimentParser:
         ],
         measurement_type: str = "gene",
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[str]]:
-        """Extracts and transforms the sample data in the adatas in preparation for loading into the
-        samplemeasurement table.
+        """Extract and transform sample measurements from AnnData objects.
 
         Args:
-            measurements (List[str]): The layers to pull out of the adata in order of appearance in table.
-            measurement_type (str): "gene" or "transcript", pull from the respective adata.
+            measurements (List[str]): List of measurement types to extract from AnnData layers
+            measurement_type (str): Type of data to process ("gene" or "transcript")
+
         Returns:
-            (Tuple[np.ndarray,np.ndarray,np.ndarray,List[str]]):
-                Array of sample_ids, sequenceregion_ids, a 2d-array of the measurements with the second dimension
-                the same size as arg measurements, and the column names to populate .
+            Tuple[np.ndarray, np.ndarray, np.ndarray, List[str]]: Tuple containing:
+                - Array of sample IDs
+                - Array of sequence region IDs
+                - 2D array of measurements (samples x measurement types)
+                - List of measurement column names
+
+        Raises:
+            AttributeError: If AnnData objects not loaded
+            ValueError: If measurement_type is invalid
         """
         if not self._adata_transcript or not self._adata_gene:
             raise AttributeError("Set adatas with load_adatas method.")
+
         if measurement_type == "transcript":
             adata = self._adata_transcript
         else:
@@ -494,20 +590,50 @@ class ExperimentParser:
 
 
 class MetaDataFetcher:
-    """TODO: Clean up exception handling and generally refactor this class."""
+    """Fetches and parses metadata from various bioinformatics databases.
 
-    _search_sra_url = (
+    Retrieves metadata from NCBI's SRA, BioProject, and ENA databases using their respective APIs.
+    Resolves relationships between different database identifiers and extracts study information.
+
+    Attributes:
+        _study_id (str): Internal study identifier
+        _srx_ids (List[str]): List of SRX experiment identifiers
+        _geo_id (str | None): GEO database identifier
+        _srp_id (str | None): SRA project identifier
+        _project_id (str | None): BioProject identifier
+        _project_title (str | None): Project title from BioProject
+        _project_summary (str | None): Project summary from BioProject
+        _sra_df (pd.DataFrame | None): DataFrame containing SRA metadata
+        _pmids (List[str]): List of associated PubMed IDs
+    """
+
+    # API URL constants
+    _search_sra_url: str = (
         "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?term={id}&db=sra"
     )
-    _link_bioproject_from_sra_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?id={id}&db=bioproject&dbfrom=sra"
-    _link_sra_from_bioproject = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?id={id}&db=sra&dbfrom=bioproject"
-    _summary_bioproject_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?id={id}&db=bioproject"
-    _search_bioproject_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?term={id}&db=bioproject&retmode=xml"
-    _fetch_bioproject_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?id={id}&db=bioproject&retmode=xml"
-    _fetch_sra_url_text = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?id={ids}&db=sra&rettype=runinfo&retmode=text"
-    _ena_url = "https://www.ebi.ac.uk/ena/portal/api/filereport?result=read_run&accession={bio_id}&fields={extra_params}"
+    _link_bioproject_from_sra_url: str = (
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?id={id}&db=bioproject&dbfrom=sra"
+    )
+    _link_sra_from_bioproject: str = (
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?id={id}&db=sra&dbfrom=bioproject"
+    )
+    _summary_bioproject_url: str = (
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?id={id}&db=bioproject"
+    )
+    _search_bioproject_url: str = (
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?term={id}&db=bioproject&retmode=xml"
+    )
+    _fetch_bioproject_url: str = (
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?id={id}&db=bioproject&retmode=xml"
+    )
+    _fetch_sra_url_text: str = (
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?id={ids}&db=sra&rettype=runinfo&retmode=text"
+    )
+    _ena_url: str = (
+        "https://www.ebi.ac.uk/ena/portal/api/filereport?result=read_run&accession={bio_id}&fields={extra_params}"
+    )
 
-    _ena_fields = [
+    _ena_fields: List[str] = [
         "run_accession",
         "experiment_accession",
         "sample_accession",
@@ -533,7 +659,13 @@ class MetaDataFetcher:
         "sample_description",
     ]
 
-    def __init__(self, study_id: str, srx_ids: List[str]):
+    def __init__(self, study_id: str, srx_ids: List[str]) -> None:
+        """Initialize MetaDataFetcher with study and experiment identifiers.
+
+        Args:
+            study_id (str): Study identifier (GEO or SRA format)
+            srx_ids (List[str]): List of SRX experiment identifiers
+        """
         self._study_id = study_id
         self._srx_ids = srx_ids
         self._geo_id = None
@@ -545,37 +677,119 @@ class MetaDataFetcher:
         self._pmids = []
         self.resolve_all_ids(fetch_srx_info=len(srx_ids) != 0)
 
+    def fetch_url(
+        self, url: str, attempt_n: int = 0, max_attempts: int = 5
+    ) -> http.client.HTTPResponse:
+        """Recursively fetch URLs with retry logic.
+
+        Args:
+            url (str): URL to fetch
+            attempt_n (int): Current attempt number
+            max_attempts (int): Maximum number of retry attempts
+
+        Returns:
+            http.client.HTTPResponse: Response from the URL
+
+        Raises:
+            Exception: If max attempts reached
+            urllib.error.HTTPError: On HTTP error after retries
+            urllib.error.URLError: On URL error after retries
+        """
+        try:
+            response = urllib.request.urlopen(url)
+        except urllib.error.HTTPError as e:
+            if "Retry-After" in e.headers:
+                time.sleep(int(e.headers["Retry-After"]))
+            else:
+                time.sleep(15)
+            if attempt_n > max_attempts:
+                raise Exception(f"Max attempts on url: {url}")
+            attempt = attempt_n + 1
+            return self.fetch_url(url, attempt_n=attempt)
+        except urllib.error.URLError:
+            time.sleep(15)
+            if attempt_n > max_attempts:
+                raise Exception(f"Max attempts on url: {url}")
+            attempt = attempt_n + 1
+            return self.fetch_url(url, attempt_n=attempt)
+        return response
+
     @property
-    def velia_id(self) -> Union[str, None]:
+    def velia_id(self) -> Optional[str]:
+        """Get internal study identifier.
+
+        Returns:
+            Optional[str]: Study identifier if set
+        """
         return self._study_id
 
     @property
-    def geo_id(self) -> Union[str, None]:
+    def geo_id(self) -> Optional[str]:
+        """Get GEO database identifier.
+
+        Returns:
+            Optional[str]: GEO identifier if available
+        """
         return self._geo_id
 
     @property
-    def srp_id(self) -> Union[str, None]:
+    def srp_id(self) -> Optional[str]:
+        """Get SRA project identifier.
+
+        Returns:
+            Optional[str]: SRA project identifier if available
+        """
         return self._srp_id
 
     @property
-    def pmids(self) -> Union[str, None]:
+    def pmids(self) -> Optional[str]:
+        """Get comma-separated list of PubMed IDs.
+
+        Returns:
+            Optional[str]: Comma-separated PubMed IDs if available
+        """
         return ",".join([pm for pm in self._pmids if pm]) if self._pmids else None
 
     @property
-    def bio_id(self) -> Union[str, None]:
+    def bio_id(self) -> Optional[str]:
+        """Get BioProject identifier.
+
+        Returns:
+            Optional[str]: BioProject identifier if available
+        """
         return self._project_id
 
     @property
-    def project_title(self) -> Union[str, None]:
+    def project_title(self) -> Optional[str]:
+        """Get project title.
+
+        Returns:
+            Optional[str]: Project title if available
+        """
         return self._project_title
 
     @property
-    def project_summary(self) -> Union[str, None]:
+    def project_summary(self) -> Optional[str]:
+        """Get project summary.
+
+        Returns:
+            Optional[str]: Project summary if available
+        """
         return self._project_summary
 
     @property
     def samples_metadata(self) -> pd.DataFrame:
-        """ """
+        """Get sample metadata DataFrame.
+
+        Returns:
+            pd.DataFrame: DataFrame containing sample metadata
+
+        Raises:
+            AttributeError: If SRA data not loaded
+        """
+        if self._sra_df is None:
+            raise AttributeError("SRA data not loaded")
+
         columns_sum = [
             "spots",
             "bases",
@@ -604,57 +818,21 @@ class MetaDataFetcher:
 
         return df
 
-    def fetch_url(
-        self, url: str, attempt_n: int = 0, max_attempts: int = 5
-    ) -> http.client.HTTPResponse:
-        """Recursively fetches urls with options for attempts and retries.
-        Checks response headers to look for "Retry-After" suggestions in event
-        of failed request.
-
-        Args:
-            url (str): The url to fetch.
-            attempt_n (int): Current attempt number, for tracking number of attempts
-                before raising exception.
-            max_attempts (int): Maximum number of attempts before raising exception.
-        Returns:
-            (http.client.HTTPResponse): Response object.
-        """
-        try:
-            response = urllib.request.urlopen(url)
-        except urllib.error.HTTPError as e:
-            if "Retry-After" in e.headers:
-                time.sleep(int(e.headers["Retry-After"]))
-            else:
-                time.sleep(15)
-            if attempt_n > max_attempts:
-                raise Exception(f"Max attempts on url: {url}")
-            attempt = attempt_n + 1
-            return self.fetch_url(url, attempt_n=attempt)
-        except urllib.error.URLError:
-            time.sleep(15)
-            if attempt_n > max_attempts:
-                raise Exception(f"Max attempts on url: {url}")
-            attempt = attempt_n + 1
-            return self.fetch_url(url, attempt_n=attempt)
-        return response
-
     def resolve_all_ids(self, fetch_srx_info: bool = True) -> None:
-        """
+        """Resolve relationships between different database identifiers.
+
+        Links GEO/SRA identifiers to BioProject and fetches associated metadata.
+
         Args:
+            fetch_srx_info (bool): Whether to fetch detailed SRX experiment info
+
+        Raises:
+            ValueError: If study_id format is not recognized
         """
         if self._study_id.startswith("GS"):
             self._geo_id = self._study_id
             self._project_id = self.link_project_id(is_sra=False)
-        elif any(
-            map(
-                lambda x: self._study_id.startswith(x),
-                (
-                    "ER",
-                    "SR",
-                    "DR",
-                ),
-            )
-        ):
+        elif any(map(lambda x: self._study_id.startswith(x), ("ER", "SR", "DR"))):
             self._srp_id = self._study_id
             self._project_id = self.link_project_id(is_sra=True)
         else:
@@ -665,14 +843,21 @@ class MetaDataFetcher:
             self.fetch_srx_info()
 
     def link_project_id(self, is_sra: bool = True) -> str:
-        """
-        Args:
-        Returns:
+        """Link study to BioProject identifier.
 
+        Args:
+            is_sra (bool): Whether the study ID is from SRA (True) or GEO (False)
+
+        Returns:
+            bioproject_id (str): BioProject identifier
+
+        Raises:
+            Exception: If unable to link to BioProject
+            ValueError: If project ID not found in response
         """
         if is_sra:
             try:
-                # Need to get an SRR id from the SRP.
+                # Need to get an SRR id from the SRP
                 response = self.fetch_url(
                     self._search_sra_url.format(id=self._study_id)
                 ).read()
@@ -700,6 +885,7 @@ class MetaDataFetcher:
                     raise ValueError("Unable to find project_id in bioprojects.")
             except Exception as e:
                 raise Exception("Unable to link geo_id to bioproject id.") from e
+
         try:
             response = self.fetch_url(
                 self._summary_bioproject_url.format(id=prj_id)
@@ -718,7 +904,14 @@ class MetaDataFetcher:
         return bioproject_id
 
     def fetch_bioproject_info(self) -> None:
-        """ """
+        """Fetch metadata from BioProject database.
+
+        Updates project title, summary, and associated PubMed IDs.
+
+        Raises:
+            Exception: If unable to fetch or parse BioProject data
+            ValueError: If project ID not found
+        """
         try:
             response = self.fetch_url(
                 self._search_bioproject_url.format(id=self._project_id)
@@ -768,8 +961,18 @@ class MetaDataFetcher:
             )
 
     def fetch_srx_info(self, batch_n: int = 50) -> None:
-        """ """
-        # Batch srx_ids into groups of batch_n.
+        """Fetch detailed metadata for SRX experiments.
+
+        Retrieves metadata from both SRA and ENA databases and merges the results.
+
+        Args:
+            batch_n (int): Number of SRX IDs to process in each batch
+
+        Raises:
+            ValueError: If number of retrieved experiments doesn't match input
+            Exception: If unable to fetch data from ENA
+        """
+        # Batch srx_ids into groups of batch_n
         sra_df = pd.DataFrame()
         for i in range(0, len(self._srx_ids), batch_n):
             response = self.fetch_url(
@@ -781,6 +984,7 @@ class MetaDataFetcher:
                 StringIO(response.decode()), quotechar='"', delimiter=","
             )
             sra_df = pd.concat([sra_df, _sra_df], ignore_index=True)
+
         if sra_df["Experiment"].unique().shape[0] != len(self._srx_ids):
             raise ValueError(
                 "Number of srx_ids retrieved does not equal number initialized. Probably misformatted srx_id."

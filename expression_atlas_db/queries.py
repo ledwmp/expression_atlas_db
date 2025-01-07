@@ -28,7 +28,9 @@ warnings.filterwarnings("ignore", message="An alias is being generated .*")
 
 def unpack_fields(
     fields: Dict[str, Any],
-    keep: Optional[Union[List[str], Callable]] = lambda x: x.startswith("sample_condition")
+    keep: Optional[Union[List[str], Callable]] = lambda x: x.startswith(
+        "sample_condition"
+    )
     | x.startswith("sample_type"),
 ) -> pd.Series:
     """Unpacks json fields column into series.
@@ -36,7 +38,7 @@ def unpack_fields(
     Args:
         fields (Dict[str, Any]): Dictionary stored in the fields column as json,
             needs to be unpacked to columns
-        keep (Union[List[str], Callable, None]): Filter to keep specific keys in fields. 
+        keep (Union[List[str], Callable, None]): Filter to keep specific keys in fields.
             Can be list of columns, or a function
 
     Returns:
@@ -71,14 +73,12 @@ def clean_dataframe_columns(
         mask &= ~df.columns.isin(drop_columns)
     if keep_columns:
         mask |= df.columns.isin(keep_columns)
-    
+
     return df.loc[:, mask]
 
 
 def fetch_studies(
-    session: base._Session,
-    studies: Optional[List[str]] = None,
-    public: bool = True
+    session: base._Session, studies: Optional[List[str]] = None, public: bool = True
 ) -> pd.DataFrame:
     """Queries against the study table.
 
@@ -203,11 +203,14 @@ def fetch_sequenceregions(
 
     return sequenceregions_df
 
+
 def fetch_samplecontrasts(
     session: base._Session,
     studies: Optional[List[str]] = None,
     contrasts: Optional[List[str]] = None,
-    keep_fields: Optional[Union[List[str], Callable]] = lambda x: x.startswith("sample_condition")
+    keep_fields: Optional[Union[List[str], Callable]] = lambda x: x.startswith(
+        "sample_condition"
+    )
     | x.startswith("sample_type"),
     public: bool = True,
 ) -> pd.DataFrame:
@@ -259,7 +262,9 @@ def fetch_samplecontrasts(
 def fetch_samples(
     session: base._Session,
     studies: Union[List[str], None] = None,
-    keep_fields: Union[List[str], Callable, None] = lambda x: x.startswith("sample_condition"),
+    keep_fields: Union[List[str], Callable, None] = lambda x: x.startswith(
+        "sample_condition"
+    ),
     public: bool = True,
 ) -> pd.DataFrame:
     """Queries against the samples table.
@@ -330,8 +335,15 @@ def update_studyqueue(
     session: base._Session,
     update_rows: pd.DataFrame,
     update_columns: List[str] = [
-        "tissue", "disease", "contrast", "category", "status",
-        "technology", "quality", "priority", "comments",
+        "tissue",
+        "disease",
+        "contrast",
+        "category",
+        "status",
+        "technology",
+        "quality",
+        "priority",
+        "comments",
     ],
 ) -> pd.DataFrame:
     """Update studyqueue table with metadata from editable dataframe.
@@ -569,8 +581,8 @@ def query_differentialexpression(
 
     return clean_dataframe_columns(
         differentialexpression_df,
-        drop_prefixes=['id', 'contrast_id', 'sequenceregion_id', 'type'],
-        keep_columns=["transcript_id", "gene_id"]
+        drop_prefixes=["id", "contrast_id", "sequenceregion_id", "type"],
+        keep_columns=["transcript_id", "gene_id"],
     )
 
 
@@ -691,8 +703,7 @@ def query_samplemeasurement(
     )
 
     return clean_dataframe_columns(
-        samplemeasurement_df,
-        keep_columns=["transcript_id", "gene_id", "srx_id"]
+        samplemeasurement_df, keep_columns=["transcript_id", "gene_id", "srx_id"]
     )
 
 
@@ -852,7 +863,7 @@ def build_study_adata_components(
         keep_fields (List[str]): Keys to unpack out of fields column
 
     Returns:
-        result (Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], ad.AnnData]): 
+        result (Union[Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], ad.AnnData]):
             Either (long_df, obs_df, var_df) tuple or AnnData object
     """
     samples_query = (
@@ -928,11 +939,11 @@ def build_expression_atlas_summary_dfs(
     Args:
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db
         public (bool): Filter for studies without public flag set
-        ambiguous_tissues (List[str]): List of tissues (sample_type_1) where we want to 
+        ambiguous_tissues (List[str]): List of tissues (sample_type_1) where we want to
             transfer higher-granularity labels
 
     Returns:
-        result (Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]): 
+        result (Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]):
             Tuple of (studies_df, contrasts_df, samples_df)
     """
     # Pull studies df.
