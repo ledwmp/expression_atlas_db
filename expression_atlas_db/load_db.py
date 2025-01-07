@@ -1,19 +1,44 @@
-import sys
-from pathlib import Path
-from typing import Dict, List, Union
-import logging
-import time
+"""Database loading and management utilities for the Expression Atlas.
 
+This module provides functions for loading, updating, and managing data in the Expression Atlas database.
+It handles both PostgreSQL/SQLite and Redshift databases, with support for local and S3 file storage.
+Key functionality includes:
+- Initial database setup and GTF data loading
+- Study data insertion and updates
+- Quality control management
+- Differential expression and sample measurement handling
+"""
+
+import logging
+from pathlib import Path
+from typing import Dict, List, Optional, Union
+import time
+import sys
+
+import s3fs
 import numpy as np
 import pandas as pd
-import s3fs
 from sqlalchemy import Table
 
+# Constants
+DEFAULT_BATCH_SIZE = 10000
+DEFAULT_LOG_LEVEL = logging.INFO
+DEFAULT_LOG_FORMAT = logging.BASIC_FORMAT
 
 def configure_logger(
-    log_file=None, level=logging.INFO, overwrite_log=True, format=logging.BASIC_FORMAT
-):
-    """ """
+    log_file: Optional[str] = None,
+    level: int = DEFAULT_LOG_LEVEL,
+    overwrite_log: bool = True,
+    format: str = DEFAULT_LOG_FORMAT
+) -> None:
+    """Configure logging settings for both file and console output.
+
+    Args:
+        log_file (Optional[str]): Path to log file. If None, logs to stdout.
+        level (int): Logging level to use.
+        overwrite_log (bool): Whether to overwrite existing log file.
+        format (str): Format string for log messages.
+    """
     # console and file
     if log_file is None:
         logging.basicConfig(stream=sys.stdout, level=level, format=format)
@@ -31,24 +56,36 @@ def configure_logger(
 
 
 configure_logger(
-    f"{time.strftime('%Y%m%d_%H%M%S')}_expression_atlas_db.log", level=logging.INFO
+    f"{time.strftime('%Y%m%d_%H%M%S')}_expression_atlas_db.log", level=DEFAULT_LOG_LEVEL
 )
 
 from expression_atlas_db import base, settings, redshift_stmts, queries
 from expression_atlas_db.utils import GTFParser, ExperimentParser, MetaDataFetcher
 
+# Column definitions
+DE_COLUMNS = [
+    c.name for c in base.DifferentialExpression.__table__.columns 
+    if not c.primary_key and len(c.foreign_keys) == 0
+]
+
+MEASUREMENT_COLUMNS = [
+    c.name for c in base.SampleMeasurement.__table__.columns 
+    if not c.primary_key and len(c.foreign_keys) == 0
+]
 
 def bulk_insert_gtf(
-    session: base._Session, gtf: Union[GTFParser, None], batch_columns: int = 10000
+    session: base._Session,
+    gtf: Union[GTFParser, None],
+    batch_columns: int = DEFAULT_BATCH_SIZE
 ) -> None:
-    """Read from gtf and populate the transcript and gene tables in expression_atlas_db. gtf should
-    be an object with transcript_df and gene_df.
-    TODO: Replace None above with other sources, perhaps velia_db.
+    """Read from gtf and populate the transcript and gene tables in expression_atlas_db.
 
     Args:
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
         gtf (Union[GTFParser,None]): object holding transcript_df and gene_df.
         batch_columns (int): number of columns to batch at one time when running inserts.
+
+    TODO: Replace None above with other sources, perhaps velia_db.
     """
     # Add all genes from veliadb into sequenceregion, then gene.
 
@@ -121,19 +158,15 @@ def create_differentialexpression(
     sequenceregions: Dict[str, base.SequenceRegion],
     study: base.Study,
     contrast: base.Contrast,
-    batch_columns: int = 10000,
+    batch_columns: int = DEFAULT_BATCH_SIZE,
     bulk_insert: bool = False,
-    session: Union[base._Session, None] = None,
-    de_columns: List[str] = [
-        c.name
-        for c in base.DifferentialExpression.__table__.columns
-        if not c.primary_key and len(c.foreign_keys) == 0
-    ],
-    s3_fs: Union[s3fs.core.S3FileSystem, None] = None,
-    fh: Union[Path, None] = None,
+    session: Optional[base._Session] = None,
+    de_columns: List[str] = DE_COLUMNS,
+    s3_fs: Optional[s3fs.core.S3FileSystem] = None,
+    fh: Optional[Path] = None,
 ) -> None:
-    """Takes a de_df from a contrast and contstructs the table entries via bulk_insert or dumping to a txt file.
-    If dumping to text file, either dumps to local if s3_fs is not passed as an argument, or to an s3 bucket.
+    """Takes a de_df from a contrast and constructs table entries via bulk_insert or dumping to txt file.
+    If dumping to text file, either dumps locally if s3_fs is not passed, or to an s3 bucket.
 
     Args:
         de_df (pd.DataFrame): DataFrame dumped from ExperimentParser.prepare_differentialexpression.
@@ -142,10 +175,13 @@ def create_differentialexpression(
         contrast (base.Contrast): Contrast object.
         batch_columns (int): Number of columns to batch insert at any time.
         bulk_insert (bool): Run bulk insert or dump table to txt file.
-        session (Union[base._Session,None]): SQLAlchemy session object to the main postgres/sqlite db.
-        de_coulumns (List[str]): Names of columns from differentialexpresssion table. Used to order txt dumps.
-        s3_fs (s3fs.core.S3FileSystem): s3fs object for access to s3.
-        fh (Union[Path,None]): Name of file to dump local txt.
+        session (Optional[base._Session]): SQLAlchemy session object to the main postgres/sqlite db.
+        de_columns (List[str]): Names of columns from differentialexpression table. Used to order txt dumps.
+        s3_fs (Optional[s3fs.core.S3FileSystem]): s3fs object for access to s3.
+        fh (Optional[Path]): Name of file to dump local txt.
+
+    Raises:
+        ValueError: If required arguments are missing for chosen insert method.
     """
     if bulk_insert and not session:
         raise ValueError("Need to provide a session if using bulk insert.")
@@ -204,16 +240,12 @@ def create_samplemeasurements(
     sequenceregions: Dict[str, base.SequenceRegion],
     study: base.Study,
     samples: Dict[str, base.Sample],
-    batch_columns: int = 10000,
+    batch_columns: int = DEFAULT_BATCH_SIZE,
     bulk_insert: bool = False,
-    session: Union[base._Session, None] = None,
-    measurement_columns: List[str] = [
-        c.name
-        for c in base.SampleMeasurement.__table__.columns
-        if not c.primary_key and len(c.foreign_keys) == 0
-    ],
-    s3_fs: Union[s3fs.core.S3FileSystem, None] = None,
-    fh: Union[Path, None] = None,
+    session: Optional[base._Session] = None,
+    measurement_columns: List[str] = MEASUREMENT_COLUMNS,
+    s3_fs: Optional[s3fs.core.S3FileSystem] = None,
+    fh: Optional[Path] = None,
 ) -> None:
     """Takes the sample measurements from an experiment and create the table entries to samplemeasurement via
     bulk_insert or dumping to a txt file. If dumping to text file, either dumps to local if s3_fs is not passed
@@ -228,10 +260,13 @@ def create_samplemeasurements(
         samples (Dict[str,base.Sample]): Dictionary of sample objects.
         batch_columns (int): Number of columns to batch insert at any time.
         bulk_insert (bool): Run bulk insert or dump table to txt file.
-        session (Union[base._Session,None]): SQLAlchemy session object to the main postgres/sqlite db.
-        measurement_columns (List[str]): Names of columns from differentialexpresssion table. Used to order txt dumps.
-        s3_fs (s3fs.core.S3FileSystem): s3fs object for access to s3.
-        fh (Union[Path,None]): Name of file to dump local txt.
+        session (Optional[base._Session]): SQLAlchemy session object to the main postgres/sqlite db.
+        measurement_columns (List[str]): Names of columns from differentialexpression table. Used to order txt dumps.
+        s3_fs (Optional[s3fs.core.S3FileSystem]): s3fs object for access to s3.
+        fh (Optional[Path]): Name of file to dump local txt.
+
+    Raises:
+        ValueError: If required arguments missing for chosen insert method.
     """
     if bulk_insert and not session:
         raise ValueError("Need to provide a session if using bulk insert.")
@@ -288,9 +323,12 @@ def copy_into_redshift_table(
 
     Args:
         session (base._Session): SQLAlchemy session object to the redshift db.
-        table (base.Base): Table class for destination table.
+        table (Table): Table class for destination table.
         s3_staging_loc (Path): The location of the staging directory where txt tables get copied.
         iam_role (str): iam_role string for redshift.
+
+    Raises:
+        Exception: If unable to copy data into redshift.
     """
     s3_copy_command = f"""copy {table.name} ({', '.join([c.name for c in table.columns if not c.primary_key])})
     from '{str(s3_staging_loc).replace('s3:/','s3://')}'
@@ -309,13 +347,16 @@ def copy_into_db_table(
     table: Table,
     test_staging_loc: Path,
 ) -> None:
-    """Copies data from local into db tables using. If it's ever desired to use a postgres instance
+    """Copies data from local into db tables. If it's ever desired to use a postgres instance
     for samplemeasurment/differentialexpression tables, this needs to be optimized.
 
     Args:
         session (base._Session): SQLAlchemy session object to the redshift db.
-        table (base.Base): Table class for destination table.
+        table (Table): Table class for destination table.
         test_staging_loc (Path): The location of the staging directory where txt tables get copied.
+
+    Raises:
+        Exception: If unable to copy data into db.
     """
     try:
         session.commit()
@@ -332,8 +373,8 @@ def insert_dataset(
     session: base._Session,
     meta: MetaDataFetcher,
     exp: ExperimentParser,
-    batch_columns: int = 100000,
-    s3: Union[s3fs.core.S3FileSystem, None] = None,
+    batch_columns: int = DEFAULT_BATCH_SIZE,
+    s3: Optional[s3fs.core.S3FileSystem] = None,
     staging_loc: Path = settings.test_staging_loc,
 ) -> None:
     """Populates the main db dataset, study, sample, contrast, and samplecontrast tables with the
@@ -346,7 +387,7 @@ def insert_dataset(
         meta (MetaDataFetcher): Object with metadata for study.
         exp (ExperimentParser): Object with references to study adatas.
         batch_columns (int): Number of columns to batch insert at any time.
-        s3 (Union[s3fs.core.S3FileSystem,None]): s3fs object for access to s3.
+        s3 (Optional[s3fs.core.S3FileSystem]): s3fs object for access to s3.
         staging_loc (Path): Location to stage txt files if not using bulk_insert.
     """
 
@@ -551,7 +592,7 @@ def delete_studies_from_update(
     use_redshift: bool = False,
     use_s3: bool = False,
     connection_string: str = settings.db_connection_string,
-    redshift_connection_string: Union[str, None] = settings.redshift_connection_string,
+    redshift_connection_string: Optional[str] = settings.redshift_connection_string,
 ) -> None:
     """Removes all data associated with a specific alembic update from db. If data were inserted into
     redshift tables via copy, deletes staged files in s3 located in staging loc. Deletes all studies from
@@ -562,7 +603,7 @@ def delete_studies_from_update(
         use_redshift (bool): Delete out of redshift samplemeasurement and differentialexpression tables.
         use_s3 (bool): Delete staged files out of s3 bucket.
         connection_string (str): Connection string to main postgres/sqlite db.
-        redshift_connection_string (str): Connection string to redshift db.
+        redshift_connection_string (Optional[str]): Connection string to redshift db.
     """
     logging.info(
         f"Querying studies across atlas with revision_id: {alembic_revision_id}."
@@ -619,7 +660,7 @@ def delete_study(
     session_redshift: Union[base._Session, None] = None,
     use_s3: bool = False,
     use_redshift: bool = False,
-    s3: Union[s3fs.core.S3FileSystem, None] = None,
+    s3: Union[s3fs.core.s3FileSysetem, None] = None,
 ) -> None:
     """Deletes a specific velia_study out of db. If data were inserted into redshift tables via
     copy, deletes staged files in s3 located in staging loc.
@@ -1030,20 +1071,40 @@ def write_studies_qc(
 def add_studyqueue(
     velia_study: str,
     session: base._Session,
-    geo_id: Union[str, None] = None,
-    srp_id: Union[str, None] = None,
-    study_id: Union[int, None] = None,
-    pmid: Union[str, None] = None,
-    status: Union[str, None] = None,
-    quality: Union[str, None] = None,
-    category: Union[str, None] = None,
-    technology: Union[str, None] = None,
-    description: Union[str, None] = None,
-    title: Union[str, None] = None,
+    geo_id: Optional[str] = None,
+    srp_id: Optional[str] = None,
+    study_id: Optional[int] = None,
+    pmid: Optional[str] = None,
+    status: Optional[str] = None,
+    quality: Optional[str] = None,
+    category: Optional[str] = None,
+    technology: Optional[str] = None,
+    description: Optional[str] = None,
+    title: Optional[str] = None,
     public: bool = False,
     processed: bool = False,
 ) -> base.StudyQueue:
-    """Adds an entry into the processing queue."""
+    """Adds an entry into the processing queue.
+
+    Args:
+        velia_study (str): Study identifier.
+        session (base._Session): SQLAlchemy session object.
+        geo_id (Optional[str]): GEO accession ID.
+        srp_id (Optional[str]): SRA project ID.
+        study_id (Optional[int]): Internal study ID.
+        pmid (Optional[str]): PubMed ID.
+        status (Optional[str]): Processing status.
+        quality (Optional[str]): Quality assessment.
+        category (Optional[str]): Study category.
+        technology (Optional[str]): Sequencing technology.
+        description (Optional[str]): Study description.
+        title (Optional[str]): Study title.
+        public (bool): Whether study is public.
+        processed (bool): Whether processing is complete.
+
+    Returns:
+        base.StudyQueue: The created queue entry.
+    """
     studyqueue = base.StudyQueue(
         velia_id=velia_study,
         geo_id=geo_id,
@@ -1067,10 +1128,10 @@ def add_studyqueue(
 def add_study(
     velia_study: str,
     session: base._Session,
-    session_redshift: Union[base._Session, None] = None,
+    session_redshift: Optional[base._Session] = None,
     use_s3: bool = False,
     use_redshift: bool = False,
-    s3: Union[s3fs.core.S3FileSystem, None] = None,
+    s3: Optional[s3fs.core.S3FileSystem] = None,
 ) -> None:
     """Adds a specific velia_study to db. Parses experiment and fetches metadata related to experiment.
     Calls insert_dataset to add studies to postgres/sqlite database. If use_s3, dumps files into staging_loc
@@ -1079,10 +1140,10 @@ def add_study(
     Args:
         velia_study (str): velia_study id, usually a geo or srp id.
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
-        session_redshift (base._Session): SQLAlchemy session object to redshift db.
+        session_redshift (Optional[base._Session]): SQLAlchemy session object to redshift db.
         use_s3 (bool): Delete staged files out of s3 bucket.
         use_redshift (bool): Delete out of redshift samplemeasurement and differentialexpression tables.
-        s3 (s3fs.core.s3FileSysetem): s3fs object for access to s3.
+        s3 (Optional[s3fs.core.S3FileSystem]): s3fs object for access to s3.
     """
 
     logging.info(f"Parsing: {velia_study}.")
@@ -1184,7 +1245,7 @@ def add_studies(
     use_redshift: bool = False,
     use_s3: bool = False,
     connection_string: str = settings.db_connection_string,
-    redshift_connection_string: Union[str, None] = settings.redshift_connection_string,
+    redshift_connection_string: Optional[str] = settings.redshift_connection_string,
 ) -> None:
     """Adds studies located in experiment_loc to db. Checks db for existence of study, then calls add_study
     to populate study into db.
@@ -1193,7 +1254,7 @@ def add_studies(
         use_redshift (bool): Add to redshift samplemeasurement and differentialexpression tables.
         use_s3 (bool): Stage files in s3 bucket, pull experiments from s3_experiment_loc.
         connection_string (str): Connection string to main postgres/sqlite db.
-        redshift_connection_string (str): Connection string to redshift db.
+        redshift_connection_string (Optional[str]): Connection string to redshift db.
     """
     if use_redshift:
         Session = base.configure(connection_string)
@@ -1260,9 +1321,7 @@ def load_db(
     use_redshift: bool = False,
     use_s3: bool = False,
     connection_string: str = settings.db_dev_connection_string,
-    redshift_connection_string: Union[
-        str, None
-    ] = settings.redshift_dev_connection_string,
+    redshift_connection_string: Optional[str] = settings.redshift_dev_connection_string,
 ) -> None:
     """Initial load_db method. If drop_all, calls bulk_insert_gtf to populate tables inheriting from
     sequenceregion table. Calls add_study on all experiments located at experiment_loc and populates
@@ -1275,7 +1334,7 @@ def load_db(
         use_redshift (bool): Add to redshift samplemeasurement and differentialexpression tables.
         use_s3 (bool): Stage files in s3 bucket, pull experiments from s3_experiment_loc.
         connection_string (str): Connection string to main postgres/sqlite db.
-        redshift_connection_string (str): Connection string to redshift db.
+        redshift_connection_string (Optional[str]): Connection string to redshift db.
     """
     if use_redshift:
         Session = base.configure(connection_string)
