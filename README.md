@@ -1,41 +1,119 @@
 # Expression Atlas Database
 
-### TODO:
-* Swap GTF feature load to veliadb. v0c/v1 veliadb ids broken. Will be better to migrate to load from veliadb itself.
-* Deprecate usage of of the qc file. This is obsolete given the development of the studyqueue table. Need to automatically populate study qc from studyqueue table to study table.
+A database system for managing and analyzing RNA sequencing expression data with integrated differential expression results.
 
-### Steps to trigger study ingestion:
-* Not best use case for alembic, but all database loads are handled via an alembic revision. Overkill, but makes managing the loads easy and can wipe if something goes wrong.  
-1. Copy study directory into s3 at: `s3://velia-piperuns-dev/expression_atlas/v1/`. The study (ex. SRP000001) directory should have structure like:
-    ```
-    SRP000001  
-    |   ...
-    └───fetchngs_output
-    │   │   ...
-    └───rnaseq_output
-        │   ...
-    └───de_results
-        │   SRP000001_dds_transcript.h5_ad
-        │   SRP000001_dds_gene.h5_ad
-        |   ...
-    ``` 
-    The de_results folder and anndatas are the only required files for ingestion. There are a few strict requirements for the folder/anndatas:
-    1. obs must be indexed on the srx accession id.
-    2. var must be indexed on the gene_id or transcript_id attributes from the veliadb gtf.
-    3. Layers exist: `["counts", "normed_counts", "raw_tpm", "normed_counts_transform"]`
-    4. uns must have dictionary with name "contrasts" that is keyed on a contrast name with values an iterable containing: `[<factor name>, <test factor>, <reference factor>]`, where factor name is a column name in obs, and the factors are categorical levels of that column.
-    5. uns must have a dictionary with name "stat_results" that is keyed on contrast name from 4. with values as a dataframe with structure:
-        1. indexed with similar index as var from 2.
-        2. columns: `["baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj", "-log10_padj"]` and an additional two columns with case and control means of normed_counts_transform named like: `<factor name>_<factor level>_meannormedcounts`.
-    6. Folder/project should be named (ex. SRP000001) as an SRA/ENA project id. Metadata are automatically fetched from ENA, so this is needed for that step.
-    7. The anndatas must have the exact suffix described above.
+## Overview
+The Expression Atlas Database provides a centralized system for storing and accessing RNA-seq expression data and differential expression analysis results. It integrates with veliadb for gene/transcript annotations and automatically fetches metadata from ENA (European Nucleotide Archive) and SRA (Sequence Read Archive).
 
-    All of the above should be automatically formatted in the `de_processing` notebooks 01-04 of the expression_atlas repo.  
-2. At base level of project directory, begin database load with below code block.
-    ```
-    alembic revision -m 'add'
-    alembic upgrade head
-    ```
-    This walks over the expression atlas piperuns bucket and loads studies. This is simply calling load_db.add_studies followed by load_db.write_studies_qc while tagging the added rows in the dataset table with an update id. One could easily call these functions out of a notebook. 
-3. By default, studies are hidden until exposed manually. Run notebook `notebooks/06_update_qc.ipynb` and toggle public to true for datsets that need to be exposed to dashboard. Additionally, qc comments can be manually added here or merged in from queue table. Finally, this notebook calls load_db.update_studies_qc to transfer this updated qc table to studies table.
+## Requirements
+- AWS S3 access
+- AWS Redshift access for large tables
+- Postgres or sqlite databse for metadata tables
+- Python environment with alembic
+- Access to veliadb
+
+## Database Structure
+The database consists of several key tables:
+
+### Core Tables
+- `studies` - Core study information, QC status, and metadata
+- `studyqueue` - Pipeline processing queue and status tracking
+- `dataset` - Base table for all dataset-related tables with version tracking
+
+### Sequence Tables
+- `sequenceregion` - Base table for genomic regions
+- `gene` - Gene records with biotype information
+- `transcript` - Transcript records linked to genes
+
+### Expression Data Tables
+- `samplemeasurement` - Expression measurements (counts, TPM, etc.) for each sample-feature pair
+- `differentialexpression` - Statistical results from differential expression analysis
+
+### Study Organization Tables
+- `sample` - Sample information and metadata
+- `contrast` - Comparison definitions between conditions
+- `samplecontrast` - Maps samples to contrasts and defines case/control relationships
+
+Each table inherits from either `Base` or `DataSet` base classes, providing common functionality like version tracking and timestamps. The database uses foreign key relationships to maintain data integrity and enable efficient querying across the expression atlas.
+
+## Usage
+
+### Study Ingestion
+Studies can be ingested into the database through the following process:
+
+1. **Data Preparation**
+   - Prepare study data using the `de_processing` notebooks (01-04) in the expression_atlas repo
+   - Ensure data meets the required format specifications
+
+2. **S3 Upload**
+   Copy study directory to S3 at: `<s3_experiment_loc>` with structure:
+   ```
+   SRP000001  
+   |   ...
+   └───fetchngs_output
+   │   │   ...
+   └───rnaseq_output
+   │   │   ...
+   └───de_results
+       │   SRP000001_dds_transcript.h5_ad
+       │   SRP000001_dds_gene.h5_ad
+       |   ...
+   ``` 
+
+3. **Data Requirements**
+   AnnData files must meet these specifications:
+   - obs indexed on srx accession id
+   - var indexed on gene_id/transcript_id from veliadb gtf
+   - Required layers: `["counts", "normed_counts", "raw_tpm", "normed_counts_transform"]`
+   - uns dictionary requirements:
+     - "contrasts" with format: `[<factor name>, <test factor>, <reference factor>]`
+     - "stat_results" with specified column structure: `["baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", 
+        "padj", "-log10_padj"]` and an additional two columns with case and 
+        control means of normed_counts_transform named like: `<factor 
+        name>_<factor level>_meannormedcounts`
+
+4. **Database Loading**
+   Run from project root:
+   ```bash
+   alembic revision -m 'add'
+   alembic upgrade head
+   ```
+
+5. **Study Exposure**
+   - New studies are hidden by default
+   - Use `notebooks/06_update_qc.ipynb` to:
+     - Toggle study visibility
+     - Add QC comments
+     - Update study metadata
+
+### Query Interface
+
+The database provides several categories of query functions through `queries.py`:
+
+#### Data Access Patterns
+
+**Metadata Queries**
+- Fetch study, sample, and contrast information
+- Access QC status and pipeline tracking
+- Retrieve experimental design and conditions
+- Query gene/transcript annotations
+
+**Expression Data**
+- Query differential expression results with flexible filtering
+- Access raw and normalized expression measurements
+- Support both gene and transcript-level analysis
+- Calculate expression statistics across sample groups
+
+**Analysis Support**
+- Generate AnnData objects for downstream analysis
+- Build summary statistics and overview tables
+- Create visualization-ready data structures
+
+See function documentation in `queries.py` for detailed parameter options and examples.
+
+
+## Development Notes
+
+### TODO
+* Deprecate usage of the qc file. This is obsolete given the development of the studyqueue table. Need to automatically populate study qc from studyqueue table to study table.
 
