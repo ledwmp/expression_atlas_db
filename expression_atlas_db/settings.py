@@ -1,20 +1,14 @@
 from configparser import ConfigParser
 from pathlib import Path
 from typing import Dict
-import os
-
-settings_ini = (
-    Path(*Path(os.path.abspath(__file__)).parts[:-2]) / "settings.ini"
-).resolve()
+from importlib import resources, import_module
 
 config_parser = ConfigParser()
 
 # overwrite defaults settings with settings from the file
-if settings_ini.exists():
-    config_parser.read(settings_ini)
+with resources.open_text(import_module("expression_atlas_db"), "settings.ini") as f:
+    config_parser.read_file(f)
     config = dict(config_parser)
-else:
-    raise Exception("No settings files at path: %s" % settings_ini)
 
 def build_postgres_connection_string(user: str, password: str, host: str, database: str) -> str:
     """Create a PostgreSQL connection string from components."""
