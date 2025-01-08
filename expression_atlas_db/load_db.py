@@ -660,7 +660,7 @@ def delete_study(
     session_redshift: Union[base._Session, None] = None,
     use_s3: bool = False,
     use_redshift: bool = False,
-    s3: Union[s3fs.core.s3FileSysetem, None] = None,
+    s3: Union[s3fs.core.S3FileSystem, None] = None,
 ) -> None:
     """Deletes a specific velia_study out of db. If data were inserted into redshift tables via
     copy, deletes staged files in s3 located in staging loc.
