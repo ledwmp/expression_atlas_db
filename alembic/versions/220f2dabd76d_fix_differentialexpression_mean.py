@@ -59,14 +59,14 @@ END;"""
 def update_differential_expression_table(
     session: base._Session,
     session_redshift: base._Session,
-    velia_id: str,
+    internal_id: str,
     s3: Union[s3fs.S3FileSystem, None] = s3fs.S3FileSystem(),
     staging_loc: Path = Path(settings.s3_staging_loc),
 ) -> None:
     """ """
-    study = session.query(base.Study).filter(base.Study.velia_id == velia_id).all()
+    study = session.query(base.Study).filter(base.Study.internal_id == internal_id).all()
     if len(study) != 1:
-        raise Exception(f"More than one or no study found for velia_id: {velia_id}.")
+        raise Exception(f"More than one or no study found for internal_id: {internal_id}.")
     study = study[0]
 
     sequenceregions = {
@@ -74,8 +74,8 @@ def update_differential_expression_table(
         **{t.transcript_id: t for t in session.query(base.Transcript).all()},
     }
 
-    logging.info(f"Reading adatas {velia_id}...")
-    exp = utils.ExperimentParser(velia_id, Path(settings.s3_experiment_loc))
+    logging.info(f"Reading adatas {internal_id}...")
+    exp = utils.ExperimentParser(internal_id, Path(settings.s3_experiment_loc))
     exp.enable_s3(s3)
     exp.load_adatas()
 
@@ -105,7 +105,7 @@ def update_differential_expression_table(
 
     for c, (c_df, _, _) in g_exp_dict.items():
 
-        logging.info(f"Modifying contrast {c} from study {study.velia_id}.")
+        logging.info(f"Modifying contrast {c} from study {study.internal_id}.")
 
         contrast = (
             session.query(base.Contrast)
@@ -137,7 +137,7 @@ def update_differential_expression_table(
 
     for c, (c_df, _, _) in t_exp_dict.items():
 
-        logging.info(f"Modifying contrast {c} from study {study.velia_id}.")
+        logging.info(f"Modifying contrast {c} from study {study.internal_id}.")
 
         contrast = (
             session.query(base.Contrast)
@@ -172,7 +172,7 @@ def upgrade(engine_name: str, db_urls: Dict[str, str]) -> None:
         return
 
     s3 = s3fs.S3FileSystem()
-    velia_ids = [
+    internal_ids = [
         Path(f).parts[-2]
         for f in s3.glob(
             str(Path(settings.s3_experiment_loc, "./*/de_results/")).replace(
@@ -184,7 +184,7 @@ def upgrade(engine_name: str, db_urls: Dict[str, str]) -> None:
     session = base.configure(db_urls["postgres"])()
     session_redshift = base.configure(db_urls["redshift"])()
 
-    for vid in velia_ids:
+    for vid in internal_ids:
         try:
             update_differential_expression_table(
                 session,

@@ -84,7 +84,7 @@ def fetch_studies(
 
     Args:
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db
-        studies (Union[List[str], None]): List of velia_id studies to query against db
+        studies (Union[List[str], None]): List of internal_id studies to query against db
         public (bool): Filter for studies without public flag set
 
     Returns:
@@ -93,7 +93,7 @@ def fetch_studies(
     query = select(base.Study)
 
     if studies:
-        query = query.filter(base.Study.velia_id.in_(studies))
+        query = query.filter(base.Study.internal_id.in_(studies))
 
     if public:
         query = query.filter(base.Study.public == True)
@@ -113,7 +113,7 @@ def fetch_contrasts(
 
     Args:
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db
-        studies (Union[List[str], None]): List of velia_id studies to query against db
+        studies (Union[List[str], None]): List of internal_id studies to query against db
         contrasts (Union[List[str], None]): List of contrast_names to query against db
         public (bool): Filter for studies without public flag set
 
@@ -125,7 +125,7 @@ def fetch_contrasts(
     )
 
     if studies:
-        query = query.filter(base.Study.velia_id.in_(studies))
+        query = query.filter(base.Study.internal_id.in_(studies))
 
     if contrasts:
         query = query.filter(base.Contrast.conrast_name.in_(contrasts))
@@ -153,7 +153,7 @@ def fetch_sequenceregions(
             These are the text ids, not the column ids from expression_atlas_db
         sequenceregions_type (Union[str, None]): One of "transcript", "gene", or None.
             Filter query on either table or return all
-        assembly_id (Union[str, None]): VeliaDB assembly_id or public assembly id
+        assembly_id (Union[str, None]): OrfDB assembly_id or public assembly id
         exact_id_match (bool): Whether to allow matches to sequenceregions with prefixes
 
     Returns:
@@ -218,7 +218,7 @@ def fetch_samplecontrasts(
 
     Args:
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db
-        studies (Union[List[str], None]): List of velia_id studies to query against db
+        studies (Union[List[str], None]): List of internal_id studies to query against db
         contrasts (Union[List[str], None]): List of contrast_names to query against db
         keep_fields (Union[List[str], Callable, None]): Filter to keep specific fields columns.
             Can be list of columns or a function
@@ -231,7 +231,7 @@ def fetch_samplecontrasts(
     query = (
         select(
             base.Contrast,
-            base.Study.velia_id,
+            base.Study.internal_id,
             base.SampleContrast.contrast_side,
             base.Sample,
         )
@@ -240,7 +240,7 @@ def fetch_samplecontrasts(
         .join(base.Sample, base.SampleContrast.sample_id == base.Sample.id)
     )
     if studies:
-        query = query.filter(base.Study.velia_id.in_(studies))
+        query = query.filter(base.Study.internal_id.in_(studies))
     if public:
         query = query.filter(base.Study.public == True)
     if contrasts:
@@ -271,7 +271,7 @@ def fetch_samples(
 
     Args:
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db
-        studies (Union[List[str], None]): List of velia_id studies to query against db
+        studies (Union[List[str], None]): List of internal_id studies to query against db
         keep_fields (Union[List[str], Callable, None]): Filter to keep specific fields columns.
             Can be list of columns or a function
         public (bool): Filter for studies without public flag set
@@ -279,11 +279,11 @@ def fetch_samples(
     Returns:
         samples_df (pd.DataFrame): Samples dataframe
     """
-    query = select(base.Sample, base.Study.velia_id).join(
+    query = select(base.Sample, base.Study.internal_id).join(
         base.Study, base.Study.id == base.Sample.study_id
     )
     if studies:
-        query = query.filter(base.Study.velia_id.in_(studies))
+        query = query.filter(base.Study.internal_id.in_(studies))
 
     if public:
         query = query.filter(base.Study.public == True)
@@ -433,7 +433,7 @@ def submit_studyqueue(
             not geo_id and meta.srp_id
         ):
             studyqueue = base.StudyQueue(
-                velia_id=srp_id,
+                internal_id=srp_id,
                 geo_id=geo_id,
                 srp_id=srp_id,
                 pmid=meta.pmids,
@@ -502,7 +502,7 @@ def query_differentialexpression(
     Args:
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db
         session_redshift (base._Session): SQLAlchemy session object to redshift db
-        studies (Union[List[str], None]): List of velia_id studies to query against db
+        studies (Union[List[str], None]): List of internal_id studies to query against db
         contrasts (Union[List[str], None]): List of contrast_names to query against db
         sequenceregions (Union[List[str], None]): List of transcript_ids or gene_ids to query.
             These are the text ids, not the column ids
@@ -517,12 +517,12 @@ def query_differentialexpression(
     Returns:
         differentialexpression_df (pd.DataFrame): Differential expression dataframe
     """
-    studies_query = select(base.Contrast, base.Study.velia_id).join(
+    studies_query = select(base.Contrast, base.Study.internal_id).join(
         base.Study, base.Contrast.study_id == base.Study.id
     )
 
     if studies:
-        studies_query = studies_query.filter(base.Study.velia_id.in_(studies))
+        studies_query = studies_query.filter(base.Study.internal_id.in_(studies))
 
     if public:
         studies_query = studies_query.filter(base.Study.public == True)
@@ -569,7 +569,7 @@ def query_differentialexpression(
         differentialexpression_query, session_redshift.bind
     )
     differentialexpression_df = differentialexpression_df.merge(
-        studies_df[["velia_id", "contrast_name"]],
+        studies_df[["internal_id", "contrast_name"]],
         left_on="contrast_id",
         right_index=True,
         how="left",
@@ -605,7 +605,7 @@ def query_samplemeasurement(
     Args:
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db
         session_redshift (base._Session): SQLAlchemy session object to redshift db
-        studies (Union[List[str], None]): List of velia_id studies to query against db
+        studies (Union[List[str], None]): List of internal_id studies to query against db
         contrasts (Union[List[str], None]): List of contrast_names to query against db
         samples (Union[List[str], None]): List of sample ids to query
         sequenceregions (Union[List[str], None]): List of transcript_ids or gene_ids to query.
@@ -618,11 +618,11 @@ def query_samplemeasurement(
     Returns:
         samplemeasurement_df (pd.DataFrame): Sample measurements dataframe
     """
-    samples_query = select(base.Sample, base.Study.velia_id).join(
+    samples_query = select(base.Sample, base.Study.internal_id).join(
         base.Sample, base.Sample.study_id == base.Study.id
     )
     if studies:
-        samples_query = samples_query.filter(base.Study.velia_id.in_(studies))
+        samples_query = samples_query.filter(base.Study.internal_id.in_(studies))
 
     if public:
         samples_query = samples_query.filter(base.Study.public == True)
@@ -633,12 +633,12 @@ def query_samplemeasurement(
     if contrasts:
         contrast_subquery = (
             select(
-                base.Study.velia_id,
+                base.Study.internal_id,
                 base.Contrast.contrast_name,
                 base.SampleContrast.contrast_side,
                 base.SampleContrast.sample_id,
             )
-            .filter(base.Study.velia_id.in_(studies))
+            .filter(base.Study.internal_id.in_(studies))
             .filter(base.Contrast.contrast_name.in_(contrasts))
             .join(base.Contrast, base.Contrast.study_id == base.Study.id)
             .join(
@@ -675,7 +675,7 @@ def query_samplemeasurement(
         pd.concat(
             [
                 samples_df[
-                    ["velia_id", "srx_id", "atlas_group", "fields"]
+                    ["internal_id", "srx_id", "atlas_group", "fields"]
                     + ([] if not contrasts else ["contrast_name", "contrast_side"])
                 ],
                 samples_df["fields"].apply(
@@ -718,7 +718,7 @@ def build_contrast_metatable(
 
     Args:
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
-        studies (Union[List[str],None]): List of velia_id studies to query against db.
+        studies (Union[List[str],None]): List of internal_id studies to query against db.
         contrasts (Union[List[str],None]): List of contrast_names to query against db.
         public (bool): Filter for studies without public flag set.
     Returns:
@@ -749,7 +749,7 @@ def build_contrast_metatable(
     samplecontrast_df.insert(
         1,
         "sample_n",
-        samplecontrast_df.groupby(["velia_id", "contrast_name", "contrast_side"])[
+        samplecontrast_df.groupby(["internal_id", "contrast_name", "contrast_side"])[
             "srx_id"
         ]
         .transform(len)
@@ -757,7 +757,7 @@ def build_contrast_metatable(
     )
     samplecontrast_df.drop("srx_id", inplace=True, axis=1)
     samplecontrast_df = samplecontrast_df.groupby(
-        ["velia_id", "contrast_name", "contrast_side"],
+        ["internal_id", "contrast_name", "contrast_side"],
     ).agg(lambda x: ",".join(x.unique()))
     for c in samplecontrast_df.columns[
         samplecontrast_df.columns.str.startswith("sample")
@@ -781,14 +781,14 @@ def build_contrast_metatable(
         axis=1,
     )
     samplecontrast_df.index = samplecontrast_df.apply(
-        lambda x: f"{x['velia_id']} -- {x['contrast_name']}", axis=1
+        lambda x: f"{x['internal_id']} -- {x['contrast_name']}", axis=1
     )
     samplecontrast_df = (
         samplecontrast_df.groupby(
-            [samplecontrast_df.index, "velia_id", "contrast_name"]
+            [samplecontrast_df.index, "internal_id", "contrast_name"]
         )
         .agg(sum)
-        .reset_index(["velia_id", "contrast_name"], drop=False)
+        .reset_index(["internal_id", "contrast_name"], drop=False)
     )
     return samplecontrast_df
 
@@ -857,7 +857,7 @@ def build_study_adata_components(
     Args:
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db
         session_redshift (base._Session): SQLAlchemy session object to redshift db
-        studies (List[str]): List of velia_ids to query against db
+        studies (List[str]): List of internal_ids to query against db
         sequenceregions_type (Literal["gene", "transcript"]): Filter var by gene or transcript
         return_adata (bool): Convert to adata or return long df, obs df, var df
         keep_fields (List[str]): Keys to unpack out of fields column
@@ -867,9 +867,9 @@ def build_study_adata_components(
             Either (long_df, obs_df, var_df) tuple or AnnData object
     """
     samples_query = (
-        select(base.Sample, base.Study.velia_id)
+        select(base.Sample, base.Study.internal_id)
         .join(base.Sample, base.Sample.study_id == base.Study.id)
-        .filter(base.Study.velia_id.in_(studies))
+        .filter(base.Study.internal_id.in_(studies))
     )
 
     samples_df = pd.read_sql(samples_query, session.bind).drop("id_1", axis=1)
@@ -987,14 +987,14 @@ def build_expression_atlas_summary_dfs(
 
     # Merge metadata into studies, contrasts.
     studies_df = (
-        studies_df.loc[:, ["velia_id", "pmid", "title", "description", "created_at"]]
+        studies_df.loc[:, ["internal_id", "pmid", "title", "description", "created_at"]]
         .rename(
             {"created_at": "processed_at"},
             axis=1,
         )
         .merge(
-            samples_df.loc[:, ["velia_id", "primary_tissue", "primary_disease"]],
-            on="velia_id",
+            samples_df.loc[:, ["internal_id", "primary_tissue", "primary_disease"]],
+            on="internal_id",
             how="left",
         )
         .explode("primary_disease")
@@ -1005,20 +1005,20 @@ def build_expression_atlas_summary_dfs(
     contrasts_df = (
         contrasts_df.loc[
             contrasts_df["contrast_side"] == "left",
-            ["velia_id", "contrast_name", "srx_id", "created_at"],
+            ["internal_id", "contrast_name", "srx_id", "created_at"],
         ]
         .rename({"created_at": "processed_at"}, axis=1)
         .merge(
             samples_df.loc[
-                :, ["velia_id", "primary_tissue", "primary_disease", "srx_id"]
+                :, ["internal_id", "primary_tissue", "primary_disease", "srx_id"]
             ],
-            on=["velia_id", "srx_id"],
+            on=["internal_id", "srx_id"],
             how="left",
         )
         .loc[
             :,
             [
-                "velia_id",
+                "internal_id",
                 "contrast_name",
                 "primary_tissue",
                 "primary_disease",
@@ -1034,7 +1034,7 @@ def build_expression_atlas_summary_dfs(
         :,
         [
             "srx_id",
-            "velia_id",
+            "internal_id",
             "primary_tissue",
             "primary_disease",
             "primary_condition",

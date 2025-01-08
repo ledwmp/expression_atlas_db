@@ -3,14 +3,14 @@
 A database system for managing and analyzing RNA sequencing expression data with integrated differential expression results.
 
 ## Overview
-The Expression Atlas Database provides a centralized system for storing and accessing RNA-seq expression data and differential expression analysis results. It integrates with veliadb for gene/transcript annotations and automatically fetches metadata from ENA (European Nucleotide Archive) and SRA (Sequence Read Archive).
+The Expression Atlas Database provides a centralized system for storing and accessing RNA-seq expression data and differential expression analysis results. It integrates with orfdb for gene/transcript annotations and automatically fetches metadata from ENA (European Nucleotide Archive) and SRA (Sequence Read Archive).
 
 ## Requirements
 - AWS S3 access
 - AWS Redshift access for large tables
 - Postgres or sqlite databse for metadata tables
 - Python environment with alembic
-- Access to veliadb
+- Access to orfdb
 
 ## Database Structure
 The database consists of several key tables:
@@ -63,7 +63,7 @@ Studies can be ingested into the database through the following process:
 3. **Data Requirements**
    AnnData files must meet these specifications:
    - obs indexed on srx accession id
-   - var indexed on gene_id/transcript_id from veliadb gtf
+   - var indexed on gene_id/transcript_id from orfdb gtf
    - Required layers: `["counts", "normed_counts", "raw_tpm", "normed_counts_transform"]`
    - uns dictionary requirements:
      - "contrasts" with format: `[<factor name>, <test factor>, <reference factor>]`

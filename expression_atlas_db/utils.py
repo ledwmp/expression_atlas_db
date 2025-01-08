@@ -715,7 +715,7 @@ class MetaDataFetcher:
         return response
 
     @property
-    def velia_id(self) -> Optional[str]:
+    def internal_id(self) -> Optional[str]:
         """Get internal study identifier.
 
         Returns:

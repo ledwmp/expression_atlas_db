@@ -27,7 +27,7 @@ MAX_ID_LENGTH = 50
 MAX_BIOTYPE_LENGTH = 200
 MAX_CONDITION_LENGTH = 200
 MAX_ASSEMBLY_ID_LENGTH = 200
-MAX_VELIA_ID_LENGTH = 20
+MAX_INTERNAL_ID_LENGTH = 20
 MAX_GEO_ID_LENGTH = 20
 MAX_SRP_ID_LENGTH = 20
 MAX_SRX_ID_LENGTH = 20
@@ -44,7 +44,7 @@ class SequenceRegion(Base):
 
     Attributes:
         id (int): Primary key
-        veliadb_id (int): Reference ID in the Velia database
+        orfdb_id (int): Reference ID in OrfDB
         assembly_id (str): Genome assembly identifier
         type (str): Type of sequence region (used for polymorphic identity)
     """
@@ -52,11 +52,11 @@ class SequenceRegion(Base):
     __tablename__ = "sequenceregion"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    veliadb_id = Column(Integer, nullable=False)
+    orfdb_id = Column(Integer, nullable=False)
     assembly_id = Column(String(MAX_ASSEMBLY_ID_LENGTH))
     type = Column(String(30))
 
-    __table_args__ = (UniqueConstraint("veliadb_id", "type"), {})
+    __table_args__ = (UniqueConstraint("orfdb_id", "type"), {})
     __mapper_args__ = {
         "polymorphic_identity": "sequence_region",
         "polymorphic_on": "type",
@@ -164,7 +164,7 @@ class StudyQueue(DataSet):
 
     Attributes:
         id (int): Primary key referencing DataSet
-        velia_id (str): Reference ID in the Velia database
+        internal_id (str): Reference ID
         geo_id (str): GEO database identifier
         srp_id (str): SRA project identifier
         study_id (int): Study identifier
@@ -187,7 +187,7 @@ class StudyQueue(DataSet):
 
     __tablename__ = "studyqueue"
     id = Column(Integer, ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
-    velia_id = Column(String(MAX_VELIA_ID_LENGTH), nullable=False)
+    internal_id = Column(String(MAX_INTERNAL_ID_LENGTH), nullable=False)
     geo_id = Column(String(MAX_GEO_ID_LENGTH))
     srp_id = Column(String(MAX_SRP_ID_LENGTH))
     study_id = Column(Integer)
@@ -218,7 +218,7 @@ class Study(DataSet):
 
     Attributes:
         id (int): Primary key referencing DataSet
-        velia_id (str): Reference ID in the Velia database
+        internal_id (str): Reference ID in the Velia database
         geo_id (str): GEO database identifier
         srp_id (str): SRA project identifier
         bio_id (str): Biological identifier
@@ -236,7 +236,7 @@ class Study(DataSet):
 
     __tablename__ = "study"
     id = Column(Integer, ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
-    velia_id = Column(String(MAX_VELIA_ID_LENGTH), nullable=False)
+    internal_id = Column(String(MAX_INTERNAL_ID_LENGTH), nullable=False)
     geo_id = Column(String(MAX_GEO_ID_LENGTH))
     srp_id = Column(String(MAX_SRP_ID_LENGTH))
     bio_id = Column(String(MAX_ID_LENGTH))

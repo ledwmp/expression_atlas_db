@@ -85,23 +85,23 @@ def bulk_insert_gtf(
         gtf (Union[GTFParser,None]): object holding transcript_df and gene_df.
         batch_columns (int): number of columns to batch at one time when running inserts.
 
-    TODO: Replace None above with other sources, perhaps velia_db.
+    TODO: Replace None above with other sources, perhaps orf_db.
     """
-    # Add all genes from veliadb into sequenceregion, then gene.
+    # Add all genes from orfdb into sequenceregion, then gene.
 
     logging.info("Creating gene sequenceregions.")
     records = [
-        f"({r.veliadb_id}, '{r.assembly_id}', '{'gene'}')"
+        f"({r.orfdb_id}, '{r.assembly_id}', '{'gene'}')"
         for i, r in gtf.gene_df.iterrows()
     ]
     for i in range(0, int(len(records) / batch_columns) + 1):
         session.execute(
-            f"""INSERT INTO sequenceregion (veliadb_id, assembly_id, type) VALUES 
+            f"""INSERT INTO sequenceregion (orfdb_id, assembly_id, type) VALUES 
                 {','.join(records[i*batch_columns:(i+1)*batch_columns])};"""
         )
 
     gene_srs = {
-        g.veliadb_id: g
+        g.orfdb_id: g
         for g in session.query(base.SequenceRegion)
         .filter((base.SequenceRegion.type == "gene"))
         .all()
@@ -109,7 +109,7 @@ def bulk_insert_gtf(
 
     logging.info("Populating gene table.")
     records = [
-        f"({gene_srs[r.veliadb_id].id}, '{r.gene_id}', '{r.gene_biotype}')"
+        f"({gene_srs[r.orfdb_id].id}, '{r.gene_id}', '{r.gene_biotype}')"
         for i, r in gtf.gene_df.iterrows()
     ]
     for i in range(0, int(len(records) / batch_columns) + 1):
@@ -120,21 +120,21 @@ def bulk_insert_gtf(
 
     genes = {g.gene_id: g for g in session.query(base.Gene).all()}
 
-    # Add all transcripts from veliadb into sequenceregion, then transcript.
+    # Add all transcripts from orfdb into sequenceregion, then transcript.
 
     logging.info("Creating transcript sequence regions.")
     records = [
-        f"({r.veliadb_id}, '{r.assembly_id}', '{'transcript'}')"
+        f"({r.orfdb_id}, '{r.assembly_id}', '{'transcript'}')"
         for i, r in gtf.transcript_df.iterrows()
     ]
     for i in range(0, int(len(records) / batch_columns) + 1):
         session.execute(
-            f"""INSERT INTO sequenceregion (veliadb_id, assembly_id , type) VALUES 
+            f"""INSERT INTO sequenceregion (orfdb_id, assembly_id , type) VALUES 
                 {','.join(records[i*batch_columns:(i+1)*batch_columns])};"""
         )
 
     transcript_srs = {
-        t.veliadb_id: t
+        t.orfdb_id: t
         for t in session.query(base.SequenceRegion)
         .filter((base.SequenceRegion.type == "transcript"))
         .all()
@@ -142,7 +142,7 @@ def bulk_insert_gtf(
 
     logging.info("Populating transcript table.")
     records = [
-        f"({transcript_srs[r.veliadb_id].id}, '{r.transcript_id}', {genes[r.gene_id].id}, '{r.gene_biotype}')"
+        f"({transcript_srs[r.orfdb_id].id}, '{r.transcript_id}', {genes[r.gene_id].id}, '{r.gene_biotype}')"
         for i, r in gtf.transcript_df.iterrows()
     ]
     for i in range(0, int(len(records) / batch_columns) + 1):
@@ -198,7 +198,7 @@ def create_differentialexpression(
         ]
 
         logging.info(
-            f"Adding de measurements from study {study.velia_id} via bulk insert."
+            f"Adding de measurements from study {study.internal_id} via bulk insert."
         )
         for i in range(0, int(len(records) / batch_columns) + 1):
             session.execute(
@@ -217,7 +217,7 @@ def create_differentialexpression(
             for i, r in de_df.iterrows()
         ]
         logging.info(
-            f"Adding de measurements from study {study.velia_id} to csv at {fh}."
+            f"Adding de measurements from study {study.internal_id} to csv at {fh}."
         )
         if not isinstance(s3_fs, s3fs.S3FileSystem):
             with open(fh, "w") as f_out:
@@ -283,7 +283,7 @@ def create_samplemeasurements(
         ]
 
         logging.info(
-            f"Adding sample measurements from study {study.velia_id} via bulk insert."
+            f"Adding sample measurements from study {study.internal_id} via bulk insert."
         )
         for i in range(0, int(len(records) / batch_columns) + 1):
             session.execute(
@@ -297,7 +297,7 @@ def create_samplemeasurements(
             for i, s, a in zip(m_regions, m_samples, m_measurements)
         ]
         logging.info(
-            f"Adding sample measurements from study {study.velia_id} to csv at {fh}."
+            f"Adding sample measurements from study {study.internal_id} to csv at {fh}."
         )
         if not isinstance(s3_fs, s3fs.S3FileSystem):
             with open(fh, "w") as f_out:
@@ -393,7 +393,7 @@ def insert_dataset(
 
     logging.info(f"Adding study {meta._study_id}.")
     study = base.Study(
-        velia_id=meta.velia_id,
+        internal_id=meta.internal_id,
         geo_id=meta.geo_id,
         srp_id=meta.srp_id,
         pmid=meta.pmids,
@@ -461,7 +461,7 @@ def insert_dataset(
 
     for c, (c_df, c_left, c_right) in g_exp_dict.items():
 
-        logging.info(f"Adding contrast {c} from study {study.velia_id}.")
+        logging.info(f"Adding contrast {c} from study {study.internal_id}.")
 
         left_condition_display = c_df["left_condition_display"].unique()[0]
         right_condition_display = c_df["right_condition_display"].unique()[0]
@@ -481,7 +481,7 @@ def insert_dataset(
         session.add(contrast)
 
         logging.info(
-            f"Adding left samplecontrasts from contrast {c} from study {study.velia_id}."
+            f"Adding left samplecontrasts from contrast {c} from study {study.internal_id}."
         )
         left_samples = session.query(base.Sample).filter(base.Sample.srx_id.in_(c_left))
         left_sample_contrasts = [
@@ -498,7 +498,7 @@ def insert_dataset(
         ]
 
         logging.info(
-            f"Adding right samplecontrasts from contrast {c} from study {study.velia_id}."
+            f"Adding right samplecontrasts from contrast {c} from study {study.internal_id}."
         )
         right_samples = session.query(base.Sample).filter(
             base.Sample.srx_id.in_(c_right)
@@ -622,18 +622,18 @@ def delete_studies_from_update(
 
     s3 = s3fs.S3FileSystem() if use_s3 else None
 
-    velia_ids = [
+    internal_ids = [
         e
-        for (e,) in session.query(base.Study.velia_id).filter(
+        for (e,) in session.query(base.Study.internal_id).filter(
             base.Study.alembic_id == alembic_revision_id
         )
     ]
 
     logging.info(
-        f"Found {len(velia_ids)} studies to be deleted with revision_id: {alembic_revision_id}."
+        f"Found {len(internal_ids)} studies to be deleted with revision_id: {alembic_revision_id}."
     )
 
-    for e in set(velia_ids):
+    for e in set(internal_ids):
 
         try:
             delete_study(
@@ -655,27 +655,27 @@ def delete_studies_from_update(
 
 
 def delete_study(
-    velia_study: str,
+    internal_study: str,
     session: base._Session,
     session_redshift: Union[base._Session, None] = None,
     use_s3: bool = False,
     use_redshift: bool = False,
     s3: Union[s3fs.core.S3FileSystem, None] = None,
 ) -> None:
-    """Deletes a specific velia_study out of db. If data were inserted into redshift tables via
+    """Deletes a specific internal_study out of db. If data were inserted into redshift tables via
     copy, deletes staged files in s3 located in staging loc.
 
     Args:
-        velia_study (str): velia_study id, usually a geo or srp id.
+        internal_study (str): internal_study id, usually a geo or srp id.
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
         session_redshift (base._Session): SQLAlchemy session object to redshift db.
         use_s3 (bool): Delete staged files out of s3 bucket.
         use_redshift (bool): Delete out of redshift samplemeasurement and differentialexpression tables.
         s3 (s3fs.core.s3FileSysetem): s3fs object for access to s3.
     """
-    logging.info(f"Deleting study: {velia_study} from expression_atlas_db.")
+    logging.info(f"Deleting study: {internal_study} from expression_atlas_db.")
 
-    study = session.query(base.Study).filter(base.Study.velia_id == velia_study).all()
+    study = session.query(base.Study).filter(base.Study.internal_id == internal_study).all()
 
     # Delete the sample_measurements/differential_expression files out of s3_staging_loc.
     gene_measurement_loc = str(
@@ -749,16 +749,16 @@ def delete_study(
         )
 
     # Delete the study, should cascade and delete all samples, contrasts, and samplecontrasts from dataset.
-    logging.info(f"Removing study: {velia_study} from expression_atlas_db.")
+    logging.info(f"Removing study: {internal_study} from expression_atlas_db.")
     session.delete(study[0])
     session.commit()
     if use_redshift:
         session_redshift.commit()
-    logging.info(f"Fully deleted study: {velia_study}.")
+    logging.info(f"Fully deleted study: {internal_study}.")
 
 
 def update_study(
-    velia_study: str,
+    internal_study: str,
     session: base._Session,
     session_redshift: Union[base._Session, None] = None,
     use_s3: bool = False,
@@ -767,14 +767,14 @@ def update_study(
     s3: Union[s3fs.core.S3FileSystem, None] = None,
     force: bool = False,
 ) -> None:
-    """Updates a specific velia_study present in db. If data were inserted into redshift tables via
+    """Updates a specific internal_study present in db. If data were inserted into redshift tables via
     copy, deletes staged files in s3 located in staging loc and replaces with new staged files. Stats
     adatas locally or in s3 to check for changes since last update. If file sizes have changed, deletes
     studies from db and re-inserts updated data. If update_timestamp flag is set, also updates upon changes to
     the file timestamp.
 
     Args:
-        velia_study (str): velia_study id, usually a geo or srp id.
+        internal_study (str): internal_study id, usually a geo or srp id.
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
         session_redshift (base._Session): SQLAlchemy session object to redshift db.
         use_s3 (bool): Delete and replaced staged files in s3 bucket.
@@ -783,18 +783,18 @@ def update_study(
         s3 (s3fs.core.s3FileSysetem): s3fs object for access to s3.
         force (bool) Force update.
     """
-    logging.info(f"Checking study for update: {velia_study}.")
+    logging.info(f"Checking study for update: {internal_study}.")
     exp = ExperimentParser(
-        velia_study,
+        internal_study,
         Path(settings.s3_experiment_loc if use_s3 else settings.test_experiment_loc),
     )
     if use_s3:
         exp.enable_s3(s3)
 
-    # Check the size and date of access against the size recorded in velia_db.
+    # Check the size and date of access against the size recorded in expression_atlas_db.
     exp.stat_adatas()
 
-    study = session.query(base.Study).filter(base.Study.velia_id == velia_study).all()
+    study = session.query(base.Study).filter(base.Study.internal_id == internal_study).all()
 
     if len(study) != 1:
         raise ValueError(
@@ -803,20 +803,20 @@ def update_study(
 
     if study[0].sizes != exp.file_sizes:
         logging.info(
-            f"Updating: {velia_study} file_sizes mismatch {study[0].sizes} -> {exp.file_sizes}."
+            f"Updating: {internal_study} file_sizes mismatch {study[0].sizes} -> {exp.file_sizes}."
         )
     elif update_timestamp and study[0].timestamps != exp.file_timestamps:
         logging.info(
-            f"Updating: {velia_study} timestamps mismatch {study[0].timestamps} -> {exp.file_timestamps}."
+            f"Updating: {internal_study} timestamps mismatch {study[0].timestamps} -> {exp.file_timestamps}."
         )
     elif force:
-        logging.info(f"Updating: {velia_study} forcefully.")
+        logging.info(f"Updating: {internal_study} forcefully.")
     else:
-        logging.info(f"Nothing to update: {velia_study}")
+        logging.info(f"Nothing to update: {internal_study}")
         return
 
     delete_study(
-        velia_study,
+        internal_study,
         session,
         session_redshift,
         use_s3=use_s3,
@@ -824,24 +824,24 @@ def update_study(
         s3=s3,
     )
 
-    logging.info(f"Re-loading adatas: {velia_study}.")
+    logging.info(f"Re-loading adatas: {internal_study}.")
     exp.load_adatas()
-    logging.info(f"Re-fetching metadata: {velia_study}.")
-    meta = MetaDataFetcher(velia_study, exp.samples)
+    logging.info(f"Re-fetching metadata: {internal_study}.")
+    meta = MetaDataFetcher(internal_study, exp.samples)
 
     studyqueue = (
         session.query(base.StudyQueue)
         .filter(
             (base.StudyQueue.srp_id == meta.srp_id)
             | (base.StudyQueue.geo_id == meta.geo_id)
-            | (base.StudyQueue.velia_id == velia_study)
+            | (base.StudyQueue.internal_id == internal_study)
         )
         .first()
     )
 
     if not studyqueue:
         studyqueue = add_studyqueue(
-            velia_study,
+            internal_study,
             session,
             geo_id=meta.geo_id,
             srp_id=meta.srp_id,
@@ -856,7 +856,7 @@ def update_study(
         studyqueue.status = "UPLOADED"
         studyqueue.processed = True
 
-    logging.info(f"Re-inserting datasets: {velia_study}.")
+    logging.info(f"Re-inserting datasets: {internal_study}.")
     insert_dataset(
         session,
         meta,
@@ -867,14 +867,14 @@ def update_study(
         ),
     )
     study_id = [
-        *session.query(base.Study.id).filter(base.Study.velia_id == velia_study)
+        *session.query(base.Study.id).filter(base.Study.internal_id == internal_study)
     ][0]
 
     studyqueue.study_id = study_id[0]
 
     contrast_ids = [
         *session.query(base.Contrast.id).filter(
-            base.Contrast.study.has(velia_id=velia_study)
+            base.Contrast.study.has(internal_id=internal_study)
         )
     ]
     if use_redshift:
@@ -943,7 +943,7 @@ def update_studies(
 
     s3 = s3fs.S3FileSystem() if use_s3 else None
     if use_s3:
-        velia_ids = [
+        internal_ids = [
             Path(f).parts[-2]
             for f in s3.glob(
                 str(Path(settings.s3_experiment_loc, "./*/de_results/")).replace(
@@ -952,22 +952,22 @@ def update_studies(
             )
         ]
     else:
-        velia_ids = [
+        internal_ids = [
             p for p in Path(settings.test_experiment_loc).iterdir() if p.is_dir()
         ]
 
     logging.info(
-        f"Found {len(velia_ids)} at {settings.s3_experiment_loc if use_s3 else settings.test_experiment_loc}."
+        f"Found {len(internal_ids)} at {settings.s3_experiment_loc if use_s3 else settings.test_experiment_loc}."
     )
 
-    existing_studies = [e for (e,) in session.query(base.Study.velia_id)]
+    existing_studies = [e for (e,) in session.query(base.Study.internal_id)]
 
     logging.info(f"Found {len(existing_studies)} already populated in database.")
 
-    for e in set(velia_ids).difference(existing_studies):
+    for e in set(internal_ids).difference(existing_studies):
         logging.info(f"Skipping: {e} does not exist in database.")
 
-    for e in set(velia_ids).intersection(existing_studies):
+    for e in set(internal_ids).intersection(existing_studies):
 
         try:
             update_study(
@@ -1016,13 +1016,13 @@ def update_studies_qc(
     with s3.open(qc_files[0], "rb") as f_in:
         qc_df = pd.read_csv(f_in, sep="|")
 
-    existing_studies = [s for (s,) in session.query(base.Study.velia_id)]
+    existing_studies = [s for (s,) in session.query(base.Study.internal_id)]
 
-    if len(set(qc_df["velia_id"]).difference(existing_studies)) > 0:
+    if len(set(qc_df["internal_id"]).difference(existing_studies)) > 0:
         raise ValueError("Study found in QC document not populated in database.")
 
     for r in qc_df.to_dict("records"):
-        session.query(base.Study).filter(base.Study.velia_id == r["velia_id"]).update(r)
+        session.query(base.Study).filter(base.Study.internal_id == r["internal_id"]).update(r)
 
     session.commit()
     logging.info(f"Updated studies with QC sheet: {qc_files[0]}.")
@@ -1062,14 +1062,14 @@ def write_studies_qc(
         str(Path(qc_loc) / f"qc.{qc_number}.txt").replace("s3:/", "s3://"), "w"
     ) as f_out:
         queries.fetch_studies(session, public=False)[
-            ["velia_id", "srp_id", "geo_id", "public", "quality"]
+            ["internal_id", "srp_id", "geo_id", "public", "quality"]
         ].to_csv(f_out, index=False, sep="|")
 
     logging.info("QC sheet updated.")
 
 
 def add_studyqueue(
-    velia_study: str,
+    internal_study: str,
     session: base._Session,
     geo_id: Optional[str] = None,
     srp_id: Optional[str] = None,
@@ -1087,7 +1087,7 @@ def add_studyqueue(
     """Adds an entry into the processing queue.
 
     Args:
-        velia_study (str): Study identifier.
+        internal_study (str): Study identifier.
         session (base._Session): SQLAlchemy session object.
         geo_id (Optional[str]): GEO accession ID.
         srp_id (Optional[str]): SRA project ID.
@@ -1106,7 +1106,7 @@ def add_studyqueue(
         studyqueue (base.StudyQueue): The created queue entry.
     """
     studyqueue = base.StudyQueue(
-        velia_id=velia_study,
+        internal_id=internal_study,
         geo_id=geo_id,
         srp_id=srp_id,
         pmid=pmid,
@@ -1126,19 +1126,19 @@ def add_studyqueue(
 
 
 def add_study(
-    velia_study: str,
+    internal_study: str,
     session: base._Session,
     session_redshift: Optional[base._Session] = None,
     use_s3: bool = False,
     use_redshift: bool = False,
     s3: Optional[s3fs.core.S3FileSystem] = None,
 ) -> None:
-    """Adds a specific velia_study to db. Parses experiment and fetches metadata related to experiment.
+    """Adds a specific internal_study to db. Parses experiment and fetches metadata related to experiment.
     Calls insert_dataset to add studies to postgres/sqlite database. If use_s3, dumps files into staging_loc
     that get uploaded into redshift db, otherwise dumps local txt files or runs bulk_insert.
 
     Args:
-        velia_study (str): velia_study id, usually a geo or srp id.
+        internal_study (str): internal_study id, usually a geo or srp id.
         session (base._Session): SQLAlchemy session object to the main postgres/sqlite db.
         session_redshift (Optional[base._Session]): SQLAlchemy session object to redshift db.
         use_s3 (bool): Delete staged files out of s3 bucket.
@@ -1146,30 +1146,30 @@ def add_study(
         s3 (Optional[s3fs.core.S3FileSystem]): s3fs object for access to s3.
     """
 
-    logging.info(f"Parsing: {velia_study}.")
+    logging.info(f"Parsing: {internal_study}.")
     exp = ExperimentParser(
-        velia_study,
+        internal_study,
         Path(settings.s3_experiment_loc if use_s3 else settings.test_experiment_loc),
     )
     if use_s3:
         exp.enable_s3(s3)
     exp.load_adatas()
-    logging.info(f"Fetching metadata: {velia_study}.")
-    meta = MetaDataFetcher(velia_study, exp.samples)
-    logging.info(f"Updating queue: {velia_study}.")
+    logging.info(f"Fetching metadata: {internal_study}.")
+    meta = MetaDataFetcher(internal_study, exp.samples)
+    logging.info(f"Updating queue: {internal_study}.")
     studyqueue = (
         session.query(base.StudyQueue)
         .filter(
             (base.StudyQueue.srp_id == meta.srp_id)
             | (base.StudyQueue.geo_id == meta.geo_id)
-            | (base.StudyQueue.velia_id == velia_study)
+            | (base.StudyQueue.internal_id == internal_study)
         )
         .first()
     )
 
     if not studyqueue:
         studyqueue = add_studyqueue(
-            velia_study,
+            internal_study,
             session,
             geo_id=meta.geo_id,
             srp_id=meta.srp_id,
@@ -1184,7 +1184,7 @@ def add_study(
         studyqueue.status = "UPLOADED"
         studyqueue.processed = True
 
-    logging.info(f"Inserting datasets: {velia_study}.")
+    logging.info(f"Inserting datasets: {internal_study}.")
     insert_dataset(
         session,
         meta,
@@ -1195,14 +1195,14 @@ def add_study(
         ),
     )
     study_id = [
-        *session.query(base.Study.id).filter(base.Study.velia_id == velia_study)
+        *session.query(base.Study.id).filter(base.Study.internal_id == internal_study)
     ][0]
 
     studyqueue.study_id = study_id[0]
 
     contrast_ids = [
         *session.query(base.Contrast.id).filter(
-            base.Contrast.study.has(velia_id=velia_study)
+            base.Contrast.study.has(internal_id=internal_study)
         )
     ]
     if use_redshift:
@@ -1269,7 +1269,7 @@ def add_studies(
 
     s3 = s3fs.S3FileSystem() if use_s3 else None
     if use_s3:
-        velia_ids = [
+        internal_ids = [
             Path(f).parts[-2]
             for f in s3.glob(
                 str(Path(settings.s3_experiment_loc, "./*/de_results/")).replace(
@@ -1278,22 +1278,22 @@ def add_studies(
             )
         ]
     else:
-        velia_ids = [
+        internal_ids = [
             p for p in Path(settings.test_experiment_loc).iterdir() if p.is_dir()
         ]
 
     logging.info(
-        f"Found {len(velia_ids)} at {settings.s3_experiment_loc if use_s3 else settings.test_experiment_loc}."
+        f"Found {len(internal_ids)} at {settings.s3_experiment_loc if use_s3 else settings.test_experiment_loc}."
     )
 
-    existing_studies = [e for (e,) in session.query(base.Study.velia_id)]
+    existing_studies = [e for (e,) in session.query(base.Study.internal_id)]
 
     logging.info(f"Found {len(existing_studies)} already populated in database.")
 
-    for e in set(velia_ids).intersection(existing_studies):
+    for e in set(internal_ids).intersection(existing_studies):
         logging.info(f"Skipping: {e} already exists in database.")
 
-    for e in set(velia_ids).difference(existing_studies):
+    for e in set(internal_ids).difference(existing_studies):
 
         try:
             add_study(

@@ -40,7 +40,7 @@ def upgrade(engine_name: str, db_urls: Dict[str, str]) -> None:
         s3=s3,
         force=True,
     )
-    study = session.query(base.Study).filter(base.Study.velia_id == study_id).all()
+    study = session.query(base.Study).filter(base.Study.internal_id == study_id).all()
     study[0].public = True
     session.commit()
     load_db.write_studies_qc(

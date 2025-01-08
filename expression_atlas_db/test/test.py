@@ -35,7 +35,7 @@ from expression_atlas_db import base, settings, queries, load_db, utils
 
 class TestBase(unittest.TestCase):
     """Base test class providing common setup and teardown functionality.
-
+    
     Attributes:
         _test_gtf: Path to test GTF file
         _test_db_connection_string: SQLite database connection string
@@ -68,7 +68,7 @@ class TestBase(unittest.TestCase):
 
 class TestFullBase(TestBase):
     """Test class that loads a complete test database with sample data."""
-
+    
     @classmethod
     def setUpClass(cls) -> None:
         """Initialize database with test GTF and sample data."""
@@ -95,7 +95,7 @@ class TestFullBase(TestBase):
 
 class TestGTF(TestBase):
     """Test GTF file parsing and database loading functionality.
-
+    
     Tests GTF parsing, database insertion, and relationship mapping between
     sequence regions, genes, and transcripts.
     """
@@ -123,7 +123,7 @@ class TestGTF(TestBase):
 
     def testGTFParser(self):
         """Test GTF file parsing functionality.
-
+        
         Verifies:
         - GTF line parsing works correctly
         - Chromosome naming is handled properly
@@ -132,27 +132,27 @@ class TestGTF(TestBase):
         # Test GTF line parsing
         test_line = 'chr1\tHAVANA\tgene\t11869\t14409\t.\t+\t.\tgene_id "ENSG00000223972"; gene_name "DDX11L1";'
         fields, infos = self.gtf.parse_gtf_line(test_line)
-
+        
         # Check basic field parsing
-        self.assertEqual(fields["Chromosome"], "1")  # tests chr stripping
-        self.assertEqual(fields["source"], "HAVANA")
-        self.assertEqual(fields["label"], "gene")
-        self.assertEqual(fields["Start"], 11869)
-        self.assertEqual(fields["End"], 14409)
-
+        self.assertEqual(fields['Chromosome'], '1')  # tests chr stripping
+        self.assertEqual(fields['source'], 'HAVANA')
+        self.assertEqual(fields['label'], 'gene')
+        self.assertEqual(fields['Start'], 11869)
+        self.assertEqual(fields['End'], 14409)
+        
         # Check attribute parsing
-        self.assertEqual(infos["gene_id"], "ENSG00000223972")
-        self.assertEqual(infos["gene_name"], "DDX11L1")
-
+        self.assertEqual(infos['gene_id'], 'ENSG00000223972')
+        self.assertEqual(infos['gene_name'], 'DDX11L1')
+        
         # Test chromosome M to MT conversion
         test_line_m = 'chrM\tHAVANA\tgene\t1\t100\t.\t+\t.\tgene_id "TEST";'
         fields, _ = self.gtf.parse_gtf_line(test_line_m)
-        self.assertEqual(fields["Chromosome"], "MT")
+        self.assertEqual(fields['Chromosome'], 'MT')
 
 
 class TestMetaDataFetcher(TestBase):
     """Test metadata fetching from ENA and SRA databases.
-
+    
     Tests the ability to fetch and parse metadata for experimental samples
     from external databases, including:
     - ID resolution between different databases (GEO, SRA, BioProject)
@@ -178,7 +178,7 @@ class TestMetaDataFetcher(TestBase):
 
     def testIDResolution(self):
         """Test resolution of identifiers between different databases.
-
+        
         Verifies:
         - GEO ID to BioProject ID resolution
         - SRA ID to BioProject ID resolution
@@ -186,18 +186,18 @@ class TestMetaDataFetcher(TestBase):
         """
         for e, exp in self._exps.items():
             # Test ID format validation
-            if exp.velia_id.startswith("GS"):
+            if exp.internal_id.startswith('GS'):
                 self.assertIsNotNone(exp.geo_id)
-            elif exp.velia_id.startswith(("ER", "SR", "DR")):
+            elif exp.internal_id.startswith(('ER', 'SR', 'DR')):
                 self.assertIsNotNone(exp.srp_id)
-
+            
             # Test BioProject linking
             if exp.bio_id:
-                self.assertTrue(exp.bio_id.startswith("PRJ"))
+                self.assertTrue(exp.bio_id.startswith('PRJ'))
 
     def testProjectMetadata(self):
         """Test fetching and parsing of project metadata.
-
+        
         Verifies:
         - Project title retrieval
         - Project summary retrieval
@@ -208,17 +208,17 @@ class TestMetaDataFetcher(TestBase):
             # Test project information
             self.assertIsNotNone(exp.project_title)
             self.assertIsInstance(exp.project_title, str)
-
+            
             if exp.project_summary:
                 self.assertIsInstance(exp.project_summary, str)
-
+            
             # Test PubMed IDs if present
             if exp.pmids:
-                self.assertTrue(all(pmid.isdigit() for pmid in exp.pmids.split(",")))
+                self.assertTrue(all(pmid.isdigit() for pmid in exp.pmids.split(',')))
 
     def testSampleMetadata(self):
         """Test sample metadata retrieval and processing.
-
+        
         Verifies:
         - Sample metadata DataFrame structure
         - Required columns presence
@@ -227,31 +227,31 @@ class TestMetaDataFetcher(TestBase):
         """
         for e, exp in self._exps.items():
             metadata_df = exp.samples_metadata
-
+            
             # Test DataFrame structure
             self.assertIsInstance(metadata_df, pd.DataFrame)
             self.assertGreater(len(metadata_df), 0)
-
+            
             # Test required columns
-            required_cols = ["Experiment", "Run", "spots", "bases"]
+            required_cols = ['Experiment', 'Run', 'spots', 'bases']
             self.assertTrue(all(col in metadata_df.columns for col in required_cols))
-
+            
             # Test numeric columns
-            numeric_cols = ["spots", "bases", "avgLength"]
+            numeric_cols = ['spots', 'bases', 'avgLength']
             for col in numeric_cols:
                 if col in metadata_df.columns:
                     self.assertTrue(pd.api.types.is_numeric_dtype(metadata_df[col]))
-
+            
             # Test experiment uniqueness
             self.assertEqual(
-                len(metadata_df["Experiment"].unique()),
+                len(metadata_df['Experiment'].unique()),
                 len(metadata_df),
-                "Duplicate experiments found in metadata",
+                "Duplicate experiments found in metadata"
             )
 
     def testENAMetadata(self):
         """Test ENA-specific metadata retrieval.
-
+        
         Verifies:
         - ENA API response parsing
         - Required ENA fields presence
@@ -259,22 +259,23 @@ class TestMetaDataFetcher(TestBase):
         """
         for e, exp in self._exps.items():
             metadata_df = exp.samples_metadata
-
+            
             # Test ENA fields
             ena_fields = [
-                "library_layout",
-                "library_selection",
-                "library_source",
-                "instrument_model",
-                "base_count",
-                "read_count",
+                'library_layout',
+                'library_selection',
+                'library_source',
+                'instrument_model',
+                'base_count',
+                'read_count'
             ]
             present_ena_fields = [f for f in ena_fields if f in metadata_df.columns]
             self.assertGreater(len(present_ena_fields), 0)
+            
 
     def testURLFetching(self):
         """Test URL fetching functionality and retry mechanism.
-
+        
         Verifies:
         - Successful URL fetching
         - Retry mechanism for failed requests
@@ -282,9 +283,9 @@ class TestMetaDataFetcher(TestBase):
         """
         for e, exp in self._exps.items():
             # Test valid URL fetch
-            response = exp.fetch_url(exp._search_sra_url.format(id=exp.velia_id))
+            response = exp.fetch_url(exp._search_sra_url.format(id=exp.internal_id))
             self.assertEqual(response.getcode(), 200)
-
+            
             # Test retry mechanism with invalid URL
             with self.assertRaises(Exception):
                 exp.fetch_url("http://invalid.url", max_attempts=1)
@@ -292,7 +293,7 @@ class TestMetaDataFetcher(TestBase):
 
 class TestExperimentParser(TestBase):
     """Test experiment data parsing functionality.
-
+    
     Tests parsing of experimental data files and metadata extraction, including:
     - AnnData file loading and validation
     - File statistics tracking
@@ -321,7 +322,7 @@ class TestExperimentParser(TestBase):
 
     def testFileStats(self):
         """Test file statistics tracking.
-
+        
         Verifies:
         - File timestamp retrieval
         - File size tracking
@@ -330,22 +331,22 @@ class TestExperimentParser(TestBase):
         for e, adata in self._adatas.items():
             # Test stat collection
             adata.stat_adatas()
-
+            
             # Verify timestamps
             self.assertIsNotNone(adata._gene_ts)
             self.assertIsNotNone(adata._transcript_ts)
-
+            
             # Verify file sizes
             self.assertIsNotNone(adata._gene_size)
             self.assertIsNotNone(adata._transcript_size)
-
+            
             # Test formatted string outputs
             self.assertIsInstance(adata.file_timestamps, str)
             self.assertIsInstance(adata.file_sizes, str)
 
     def testDataLoading(self):
         """Test AnnData loading functionality.
-
+        
         Verifies:
         - Successful loading of gene and transcript data
         - Data validation
@@ -355,13 +356,13 @@ class TestExperimentParser(TestBase):
             # Test data loading
             self.assertIsNotNone(adata._adata_gene)
             self.assertIsNotNone(adata._adata_transcript)
-
+            
             # Test sample consistency
             self.assertEqual(
                 adata._adata_gene.obs.index.tolist(),
-                adata._adata_transcript.obs.index.tolist(),
+                adata._adata_transcript.obs.index.tolist()
             )
-
+            
             # Test error handling
             with self.assertRaises(FileNotFoundError):
                 bad_adata = utils.ExperimentParser("nonexistent", self._test_data_loc)
@@ -369,7 +370,7 @@ class TestExperimentParser(TestBase):
 
     def testSampleMetadata(self):
         """Test sample metadata handling.
-
+        
         Verifies:
         - Sample list generation
         - Metadata DataFrame structure
@@ -380,15 +381,16 @@ class TestExperimentParser(TestBase):
             samples = adata.samples
             self.assertIsInstance(samples, list)
             self.assertGreater(len(samples), 0)
-
+            
             # Test metadata DataFrame
             meta = adata.samples_metadata
             self.assertIsInstance(meta, pd.DataFrame)
             self.assertEqual(len(meta), len(samples))
+                        
 
     def testS3Integration(self):
         """Test S3 storage integration.
-
+        
         Verifies:
         - S3 filesystem configuration
         - S3 path handling
@@ -398,9 +400,9 @@ class TestExperimentParser(TestBase):
             # Test S3 configuration
             self.assertFalse(adata._s3_enabled)
             self.assertIsNone(adata._s3fs)
-
+            
             # Test enabling S3 (mock filesystem)
-            mock_s3fs = type("MockS3FS", (), {"glob": lambda x: []})()
+            mock_s3fs = type('MockS3FS', (), {'glob': lambda x: []})()
             adata.enable_s3(mock_s3fs)
             self.assertTrue(adata._s3_enabled)
             self.assertIsNotNone(adata._s3fs)
@@ -408,13 +410,13 @@ class TestExperimentParser(TestBase):
 
 class TestQueue(TestBase):
     """Test study queue management functionality.
-
+    
     Tests adding, updating, and managing study processing queue entries.
     """
 
     def testQueueAdd(self):
         """Test adding studies to the processing queue.
-
+        
         Tests:
         - Adding new studies with valid/invalid parameters
         - Duplicate study handling
@@ -481,7 +483,7 @@ class TestQueue(TestBase):
 
     def testQueueUpdate(self):
         """Test updating existing queue entries.
-
+        
         Tests:
         - Modifying queue entry attributes
         - Verifying changes are persisted
@@ -518,13 +520,13 @@ class TestQueue(TestBase):
 
 class TestLoad(TestFullBase):
     """Test full database loading functionality.
-
+    
     Verifies correct loading of samples, studies, and differential expression data.
     """
 
     def testLoad(self):
         """Test database loading with complete dataset.
-
+        
         Verifies:
         - Sample count
         - Study count
@@ -543,13 +545,13 @@ class TestLoad(TestFullBase):
 
 class TestBulkStudyQueueAdd(TestFullBase):
     """Test bulk addition of studies to processing queue.
-
+    
     Tests adding multiple studies to the queue simultaneously.
     """
 
     def testStudyQueueAdd(self):
         """Test bulk addition of studies to queue.
-
+        
         Verifies:
         - All studies are added correctly
         - Proper attribute mapping
@@ -559,7 +561,7 @@ class TestBulkStudyQueueAdd(TestFullBase):
         studies = self.session.query(base.Study).all()
         for s in studies:
             load_db.add_studyqueue(
-                s.velia_id,
+                s.internal_id,
                 self.session,
                 technology="BULK",
                 study_id=s.id,
@@ -571,7 +573,7 @@ class TestBulkStudyQueueAdd(TestFullBase):
                     if not c.primary_key
                     and len(c.foreign_keys) == 0
                     and c.name in base.Study.__table__.columns.keys()
-                    and c.name != "velia_id"
+                    and c.name != "internal_id"
                 },
             )
         studyqueues = self.session.query(base.StudyQueue).all()
@@ -580,7 +582,7 @@ class TestBulkStudyQueueAdd(TestFullBase):
 
 class TestDeleteStudy(TestFullBase):
     """Test study deletion functionality.
-
+    
     Tests complete removal of study data including related samples and measurements.
     """
 
@@ -588,7 +590,7 @@ class TestDeleteStudy(TestFullBase):
 
     def deleteStudy(self):
         """Test complete study deletion.
-
+        
         Verifies:
         - Removal of all study-related samples
         - Removal of study entry
@@ -599,12 +601,12 @@ class TestDeleteStudy(TestFullBase):
         sample_counts = (
             self.session.query(base.Sample)
             .join(base.Study, base.Study.id == base.Sample.study_id)
-            .filter(base.Study.velia_id == self._delete_study)
+            .filter(base.Study.internal_id == self._delete_study)
             .count()
         )
         study_counts = (
             self.session.query(base.Study)
-            .filter(base.Study.velia_id == self._delete_study)
+            .filter(base.Study.internal_id == self._delete_study)
             .count()
         )
         differentialexpression_counts = self.session.query(
@@ -616,14 +618,14 @@ class TestDeleteStudy(TestFullBase):
                 base.Contrast,
                 base.Contrast.id == base.DifferentialExpression.contrast_id,
             )
-            .filter(base.Contrast.study.has(velia_id=self._delete_study))
+            .filter(base.Contrast.study.has(internal_id=self._delete_study))
             .count()
         )
         samplemeasurement_counts = self.session.query(base.SampleMeasurement).count()
         samplemeasurement_counts_todelete = (
             self.session.query(base.SampleMeasurement)
             .join(base.Sample, base.Sample.id == base.SampleMeasurement.sample_id)
-            .filter(base.Sample.study.has(velia_id=self._delete_study))
+            .filter(base.Sample.study.has(internal_id=self._delete_study))
             .count()
         )
 
@@ -641,12 +643,12 @@ class TestDeleteStudy(TestFullBase):
         delete_sample_counts = (
             self.session.query(base.Sample)
             .join(base.Study, base.Study.id == base.Sample.study_id)
-            .filter(base.Study.velia_id == self._delete_study)
+            .filter(base.Study.internal_id == self._delete_study)
             .count()
         )
         delete_study_counts = (
             self.session.query(base.Study)
-            .filter(base.Study.velia_id == self._delete_study)
+            .filter(base.Study.internal_id == self._delete_study)
             .count()
         )
         delete_differentialexpression_counts = self.session.query(
@@ -674,7 +676,7 @@ class TestDeleteStudy(TestFullBase):
 
 class TestUpdateStudy(TestFullBase):
     """Test study update functionality.
-
+    
     Tests updating existing study data while maintaining data integrity.
     """
 
@@ -682,7 +684,7 @@ class TestUpdateStudy(TestFullBase):
 
     def updateStudy(self):
         """Test study data update process.
-
+        
         Verifies:
         - Sample count consistency
         - Study count consistency
@@ -692,12 +694,12 @@ class TestUpdateStudy(TestFullBase):
         sample_counts = (
             self.session.query(base.Sample)
             .join(base.Study, base.Study.id == base.Sample.study_id)
-            .filter(base.Study.velia_id == self._update_study)
+            .filter(base.Study.internal_id == self._update_study)
             .count()
         )
         study_counts = (
             self.session.query(base.Study)
-            .filter(base.Study.velia_id == self._update_study)
+            .filter(base.Study.internal_id == self._update_study)
             .count()
         )
         samplemeasurement_counts = self.session.query(base.SampleMeasurement).count()
@@ -720,12 +722,12 @@ class TestUpdateStudy(TestFullBase):
         update_sample_counts = (
             self.session.query(base.Sample)
             .join(base.Study, base.Study.id == base.Sample.study_id)
-            .filter(base.Study.velia_id == self._update_study)
+            .filter(base.Study.internal_id == self._update_study)
             .count()
         )
         update_study_counts = (
             self.session.query(base.Study)
-            .filter(base.Study.velia_id == self._update_study)
+            .filter(base.Study.internal_id == self._update_study)
             .count()
         )
         update_samplemeasurement_counts = self.session.query(
@@ -749,7 +751,7 @@ class TestUpdateStudy(TestFullBase):
 
 class TestUpdateDifferentialExpression(TestFullBase):
     """Test updating differential expression values in the database.
-
+    
     Tests the ability to modify differential expression values for specific contrasts
     while maintaining data integrity and preserving unmodified entries.
     """
@@ -758,7 +760,7 @@ class TestUpdateDifferentialExpression(TestFullBase):
 
     def updateDifferentialExpression(self):
         """Test updating differential expression values for a specific study contrast.
-
+        
         This test:
         1. Loads existing differential expression data for a study
         2. Modifies control and case mean values (multiplies by 10)
@@ -768,7 +770,7 @@ class TestUpdateDifferentialExpression(TestFullBase):
            - Unmodified entries remain unchanged
            - Changes are properly persisted in the database
            - Batch processing works correctly (100 records at a time)
-
+        
         The test specifically checks:
         - Pre vs post update values for modified entries
         - Preservation of unmodified entries
@@ -776,11 +778,7 @@ class TestUpdateDifferentialExpression(TestFullBase):
         - Data integrity across the update process
         """
         # Get study object
-        study = (
-            self.session.query(base.Study)
-            .filter(base.Study.velia_id == self._update_study)
-            .first()
-        )
+        study = self.session.query(base.Study).filter(base.Study.internal_id == self._update_study).first()
 
         # Load sequence regions (genes and transcripts)
         sequenceregions = {
@@ -788,7 +786,7 @@ class TestUpdateDifferentialExpression(TestFullBase):
             **{t.transcript_id: t for t in self.session.query(base.Transcript).all()},
         }
 
-        logging.info(f"Loading adatas {self._update_study}...")
+        logging.info(f'Loading adatas {self._update_study}...')
         exp = utils.ExperimentParser(self._update_study, Path(self._test_data_loc))
         exp.load_adatas()
 
@@ -801,25 +799,22 @@ class TestUpdateDifferentialExpression(TestFullBase):
 
         # Process gene contrasts
         g_exp_dict = exp.prepare_differentialexpression(
-            measurement_type="gene",
+            measurement_type="gene", 
             de_columns=de_columns,
         )
 
         for c, (c_df, _, _) in g_exp_dict.items():
-            logging.info(f"Modifying contrast {c} from study {study.velia_id}.")
+            logging.info(f"Modifying contrast {c} from study {study.internal_id}.")
 
             # Get contrast object
-            contrast = (
-                self.session.query(base.Contrast)
-                .filter(base.Contrast.contrast_name == c)
-                .filter(base.Contrast.study_id == study.id)
-                .first()
-            )
+            contrast = self.session.query(base.Contrast).filter(
+                base.Contrast.contrast_name == c
+            ).filter(
+                base.Contrast.study_id == study.id
+            ).first()
 
             # Set up staging file
-            table_fh = (
-                Path(self._test_staging_loc) / f"gene_de.{study.id}.{contrast.id}.csv"
-            )
+            table_fh = Path(self._test_staging_loc) / f"gene_de.{study.id}.{contrast.id}.csv"
 
             # Create differential expression entries
             load_db.create_differentialexpression(
@@ -833,114 +828,90 @@ class TestUpdateDifferentialExpression(TestFullBase):
             # Load data to be modified
             contrast_df = pd.read_csv(
                 table_fh,
-                names=["contrast_id", "sequenceregion_id"] + de_columns,
-            ).loc[:, ["contrast_id", "sequenceregion_id", "control_mean", "case_mean"]]
+                names=["contrast_id", "sequenceregion_id"]+de_columns,
+            ).loc[
+                :,["contrast_id", "sequenceregion_id", "control_mean", "case_mean"]
+            ]
 
             # Get original values for comparison
             unchanged_contrast_df = pd.read_sql(
-                select(base.DifferentialExpression)
-                .filter(base.DifferentialExpression.contrast_id == contrast.id)
-                .filter(
+                select(base.DifferentialExpression).filter(
+                    base.DifferentialExpression.contrast_id == contrast.id
+                ).filter(
                     base.DifferentialExpression.sequenceregion_id.in_(
-                        contrast_df["sequenceregion_id"].tolist()
+                        contrast_df['sequenceregion_id'].tolist()
                     )
                 ),
                 self.session.bind,
-            ).set_index("id")
+            ).set_index('id')
 
             pre_unmodified_contrast_df = pd.read_sql(
-                select(base.DifferentialExpression)
-                .filter(base.DifferentialExpression.contrast_id == contrast.id)
-                .filter(
+                select(base.DifferentialExpression).filter(
+                    base.DifferentialExpression.contrast_id == contrast.id
+                ).filter(
                     base.DifferentialExpression.sequenceregion_id.not_in(
-                        contrast_df["sequenceregion_id"].tolist()
+                        contrast_df['sequenceregion_id'].tolist()
                     )
                 ),
                 self.session.bind,
-            ).set_index("id")
+            ).set_index('id')
 
-            contrast_df["control_mean"] = contrast_df["control_mean"] * 10
-            contrast_df["case_mean"] = contrast_df["case_mean"] * 10
+            contrast_df['control_mean'] = contrast_df['control_mean']*10
+            contrast_df['case_mean'] = contrast_df['case_mean']*10
 
             contrast_df.columns = [f"b__{n}" for n in contrast_df.columns]
-
+            
             for i in range(0, contrast_df.shape[0], 100):
                 self.session.connection().execute(
-                    update(base.DifferentialExpression)
-                    .where(
-                        base.DifferentialExpression.contrast_id
-                        == bindparam("b__contrast_id")
-                    )
-                    .where(
-                        base.DifferentialExpression.sequenceregion_id
-                        == bindparam("b__sequenceregion_id")
-                    )
-                    .values(
-                        {
-                            "control_mean": bindparam("b__control_mean"),
-                            "case_mean": bindparam("b__case_mean"),
-                        }
+                    update(base.DifferentialExpression).where(
+                        base.DifferentialExpression.contrast_id == bindparam("b__contrast_id")
+                    ).where(
+                        base.DifferentialExpression.sequenceregion_id == bindparam("b__sequenceregion_id")
+                    ).values(
+                        {'control_mean' : bindparam('b__control_mean'), 'case_mean' : bindparam('b__case_mean')}
                     ),
-                    contrast_df.iloc[i : i + 100].to_dict("records"),
+                    contrast_df.iloc[i:i+100].to_dict('records'),
                 )
 
             self.session.commit()
 
             changed_contrast_df = pd.read_sql(
-                select(base.DifferentialExpression)
-                .filter(base.DifferentialExpression.contrast_id == contrast.id)
-                .filter(
+                select(base.DifferentialExpression).filter(
+                    base.DifferentialExpression.contrast_id == contrast.id
+                ).filter(
                     base.DifferentialExpression.sequenceregion_id.in_(
-                        contrast_df["b__sequenceregion_id"].tolist()
+                        contrast_df['b__sequenceregion_id'].tolist()
                     )
                 ),
                 self.session.bind,
-            ).set_index("id")
+            ).set_index('id')
 
             post_unmodified_contrast_df = pd.read_sql(
-                select(base.DifferentialExpression)
-                .filter(base.DifferentialExpression.contrast_id == contrast.id)
-                .filter(
+                select(base.DifferentialExpression).filter(
+                    base.DifferentialExpression.contrast_id == contrast.id
+                ).filter(
                     base.DifferentialExpression.sequenceregion_id.not_in(
-                        contrast_df["b__sequenceregion_id"].tolist()
+                        contrast_df['b__sequenceregion_id'].tolist()
                     )
                 ),
                 self.session.bind,
-            ).set_index("id")
-
+            ).set_index('id')
+   
             self.assertEqual(
-                pre_unmodified_contrast_df.loc[
-                    pre_unmodified_contrast_df.index, "control_mean"
-                ].tolist(),
-                post_unmodified_contrast_df.loc[
-                    pre_unmodified_contrast_df.index, "control_mean"
-                ].tolist(),
+                pre_unmodified_contrast_df.loc[pre_unmodified_contrast_df.index, "control_mean"].tolist(),
+                post_unmodified_contrast_df.loc[pre_unmodified_contrast_df.index, "control_mean"].tolist(),
             )
             self.assertEqual(
-                pre_unmodified_contrast_df.loc[
-                    pre_unmodified_contrast_df.index, "case_mean"
-                ].tolist(),
-                post_unmodified_contrast_df.loc[
-                    pre_unmodified_contrast_df.index, "case_mean"
-                ].tolist(),
+                pre_unmodified_contrast_df.loc[pre_unmodified_contrast_df.index, "case_mean"].tolist(),
+                post_unmodified_contrast_df.loc[pre_unmodified_contrast_df.index, "case_mean"].tolist(),
             )
             self.assertEqual(
-                changed_contrast_df.loc[
-                    changed_contrast_df.index, "control_mean"
-                ].tolist(),
-                (
-                    unchanged_contrast_df.loc[changed_contrast_df.index, "control_mean"]
-                    * 10
-                ).tolist(),
+                changed_contrast_df.loc[changed_contrast_df.index, "control_mean"].tolist(),
+                (unchanged_contrast_df.loc[changed_contrast_df.index, "control_mean"]*10).tolist(),
             )
             self.assertEqual(
-                changed_contrast_df.loc[
-                    changed_contrast_df.index, "case_mean"
-                ].tolist(),
-                (
-                    unchanged_contrast_df.loc[changed_contrast_df.index, "case_mean"]
-                    * 10
-                ).tolist(),
+                changed_contrast_df.loc[changed_contrast_df.index, "case_mean"].tolist(),
+                (unchanged_contrast_df.loc[changed_contrast_df.index, "case_mean"]*10).tolist(),
             )
 
 

@@ -34,7 +34,7 @@ def upgrade(engine_name: str, db_urls: Dict[str, str]) -> None:
     studies = session.query(base.Study).all()
     for s in studies:
         load_db.add_studyqueue(
-            s.velia_id,
+            s.internal_id,
             session,
             technology="BULK",
             study_id=s.id,
@@ -46,7 +46,7 @@ def upgrade(engine_name: str, db_urls: Dict[str, str]) -> None:
                 if not c.primary_key
                 and len(c.foreign_keys) == 0
                 and c.name in base.Study.__table__.columns.keys()
-                and c.name != "velia_id"
+                and c.name != "internal_id"
             },
         )
     studyqueues = session.query(base.StudyQueue).all()
