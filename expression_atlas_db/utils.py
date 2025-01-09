@@ -25,10 +25,10 @@ import http
 import logging
 import tempfile
 import urllib
+import xml.etree.ElementTree as ET
 
 import numpy as np
 import pandas as pd
-import xml.etree.ElementTree as ET
 import s3fs
 import anndata as ad
 
