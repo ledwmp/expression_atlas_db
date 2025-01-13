@@ -6,6 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "expression_atlas_db"
 version = "0.0.1"
 description = "Database interface for Expression Atlas data"
+authors = [
+    {name = "Mitch Ledwith", email = "mitch@veliatx.com"}
+]
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3.8",
