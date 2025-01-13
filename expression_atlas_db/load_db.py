@@ -104,6 +104,7 @@ def bulk_insert_gtf(
         g.orfdb_id: g
         for g in session.query(base.SequenceRegion)
         .filter((base.SequenceRegion.type == "gene"))
+        .filter(base.SequenceRegion.assembly_id == gtf.assembly_id)
         .all()
     }
 
@@ -118,7 +119,12 @@ def bulk_insert_gtf(
                 {','.join(records[i*batch_columns:(i+1)*batch_columns])};"""
         )
 
-    genes = {g.gene_id: g for g in session.query(base.Gene).all()}
+    genes = {
+        g.gene_id: g
+        for g in session.query(base.Gene)
+        .filter(base.Gene.assembly_id == gtf.assembly_id)
+        .all()
+    }
 
     # Add all transcripts from orfdb into sequenceregion, then transcript.
 
@@ -137,6 +143,7 @@ def bulk_insert_gtf(
         t.orfdb_id: t
         for t in session.query(base.SequenceRegion)
         .filter((base.SequenceRegion.type == "transcript"))
+        .filter(base.SequenceRegion.assembly_id == gtf.assembly_id)
         .all()
     }
 
@@ -430,8 +437,18 @@ def insert_dataset(
     session.add_all(samples)
 
     sequenceregions = {
-        **{g.gene_id: g for g in session.query(base.Gene).all()},
-        **{t.transcript_id: t for t in session.query(base.Transcript).all()},
+        **{
+            g.gene_id: g
+            for g in session.query(base.Gene)
+            .filter(base.Gene.assembly_id == exp.assembly_id)
+            .all()
+        },
+        **{
+            t.transcript_id: t
+            for t in session.query(base.Transcript)
+            .filter(base.Transcript.assembly_id == exp.assembly_id)
+            .all()
+        },
     }
 
     measurement_columns = [
