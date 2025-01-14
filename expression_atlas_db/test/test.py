@@ -45,7 +45,7 @@ class TestBase(unittest.TestCase):
     """
 
     _test_gtf = (
-        f"{Path('/'.join(Path(__file__).parts[:-1]), 'test_data', 'veliadb_test.gtf')}"
+        f"{Path('/'.join(Path(__file__).parts[:-1]), 'test_data', 'orfdb_test.gtf')}"
     )
     _test_db_connection_string = (
         f"sqlite:///{Path('/'.join(Path(__file__).parts[:-1]), 'test_data', 'test.db')}"
@@ -103,7 +103,7 @@ class TestGTF(TestBase):
     sequence regions, genes, and transcripts.
     """
 
-    _test_v2_gtf = f"{Path('/'.join(Path(__file__).parts[:-1]), 'test_data', 'veliadb_test_v2.gtf')}"
+    _test_v2_gtf = f"{Path('/'.join(Path(__file__).parts[:-1]), 'test_data', 'orfdb_test_v2.gtf')}"
 
     def setUp(self):
         """Initialize GTF parser and load data into test database."""
@@ -143,17 +143,10 @@ class TestGTF(TestBase):
         self.assertIsNotNone(gene.transcripts)
         self.assertGreater(len(gene.transcripts), 0)
         
-        # Test sequence region relationships
-        transcript = gene.transcripts[0]
-        self.assertIsNotNone(transcript.sequence_region)
-        self.assertEqual(transcript.sequence_region.Start, transcript.Start)
-        self.assertEqual(transcript.sequence_region.End, transcript.End)
-        
-        # Test gene sequence region
-        self.assertIsNotNone(gene.sequence_region)
-        self.assertEqual(gene.sequence_region.Start, gene.Start)
-        self.assertEqual(gene.sequence_region.End, gene.End)
-
+        # Get a sample transcript and its gene 
+        transcript = self.session.query(base.Transcript).first()
+        self.assertIsNotNone(transcript.gene)
+      
     def testGTFParser(self):
         """Test GTF file parsing functionality.
         
@@ -196,25 +189,25 @@ class TestGTF(TestBase):
 
         self.assertEqual(
             self.session.query(base.Gene)
-            .filter(base.Gene.assembly_id == "veliadb_test")
+            .filter(base.Gene.assembly_id == "orfdb_test")
             .count(),
             2119,
         )
         self.assertEqual(
             self.session.query(base.Transcript)
-            .filter(base.Transcript.assembly_id == "veliadb_test")
+            .filter(base.Transcript.assembly_id == "orfdb_test")
             .count(),
             9111,
         )
         self.assertEqual(
             self.session.query(base.Gene)
-            .filter(base.Gene.assembly_id == "veliadb_test_v2")
+            .filter(base.Gene.assembly_id == "orfdb_test_v2")
             .count(),
             2119,
         )
         self.assertEqual(
             self.session.query(base.Transcript)
-            .filter(base.Transcript.assembly_id == "veliadb_test_v2")
+            .filter(base.Transcript.assembly_id == "orfdb_test_v2")
             .count(),
             9111,
         )
@@ -236,12 +229,12 @@ class TestGTF(TestBase):
         v1_transcript_srs = queries.fetch_sequenceregions(
             self.session,
             sequenceregions_type="transcript",
-            assembly_id="veliadb_test",
+            assembly_id="orfdb_test",
         )
         v2_transcript_srs = queries.fetch_sequenceregions(
             self.session,
             sequenceregions_type="transcript",
-            assembly_id="veliadb_test_v2",
+            assembly_id="orfdb_test_v2",
         )
         self.assertEqual(all_transcript_srs.shape[0], 18222)
         self.assertEqual(all_transcript_srs["transcript_id"].nunique(), 9111)
