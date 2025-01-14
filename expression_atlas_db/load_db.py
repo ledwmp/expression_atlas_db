@@ -18,7 +18,7 @@ import sys
 import s3fs
 import numpy as np
 import pandas as pd
-from sqlalchemy import Table
+from sqlalchemy import Table, text
 
 # Constants
 DEFAULT_BATCH_SIZE = 10000
@@ -96,8 +96,10 @@ def bulk_insert_gtf(
     ]
     for i in range(0, int(len(records) / batch_columns) + 1):
         session.execute(
-            f"""INSERT INTO sequenceregion (orfdb_id, assembly_id, type) VALUES 
-                {','.join(records[i*batch_columns:(i+1)*batch_columns])};"""
+            text(
+                f"""INSERT INTO sequenceregion (orfdb_id, assembly_id, type) VALUES 
+                    {','.join(records[i*batch_columns:(i+1)*batch_columns])};"""
+            )
         )
 
     gene_srs = {
@@ -115,8 +117,10 @@ def bulk_insert_gtf(
     ]
     for i in range(0, int(len(records) / batch_columns) + 1):
         session.execute(
-            f"""INSERT INTO gene (id, gene_id, gene_biotype) VALUES 
-                {','.join(records[i*batch_columns:(i+1)*batch_columns])};"""
+            text(
+                f"""INSERT INTO gene (id, gene_id, gene_biotype) VALUES 
+                    {','.join(records[i*batch_columns:(i+1)*batch_columns])};"""
+            )
         )
 
     genes = {
@@ -135,8 +139,10 @@ def bulk_insert_gtf(
     ]
     for i in range(0, int(len(records) / batch_columns) + 1):
         session.execute(
-            f"""INSERT INTO sequenceregion (orfdb_id, assembly_id , type) VALUES 
-                {','.join(records[i*batch_columns:(i+1)*batch_columns])};"""
+            text(
+                f"""INSERT INTO sequenceregion (orfdb_id, assembly_id , type) VALUES 
+                    {','.join(records[i*batch_columns:(i+1)*batch_columns])};"""
+            )
         )
 
     transcript_srs = {
@@ -154,8 +160,10 @@ def bulk_insert_gtf(
     ]
     for i in range(0, int(len(records) / batch_columns) + 1):
         session.execute(
-            f"""INSERT INTO transcript (id, transcript_id, gene_id, gene_biotype) VALUES 
-                {','.join(records[i*batch_columns:(i+1)*batch_columns])};"""
+            text(
+                f"""INSERT INTO transcript (id, transcript_id, gene_id, gene_biotype) VALUES 
+                    {','.join(records[i*batch_columns:(i+1)*batch_columns])};"""
+            )
         )
     session.commit()
 
@@ -209,8 +217,10 @@ def create_differentialexpression(
         )
         for i in range(0, int(len(records) / batch_columns) + 1):
             session.execute(
-                f"""INSERT INTO differentialexpression (contrast_id, sequenceregion_id, {', '.join(de_columns)}) VALUES 
-                {','.join(records[i*batch_columns:(i+1)*batch_columns])};"""
+                text(
+                    f"""INSERT INTO differentialexpression (contrast_id, sequenceregion_id, {', '.join(de_columns)}) VALUES 
+                    {','.join(records[i*batch_columns:(i+1)*batch_columns])};"""
+                )
             )
             session.commit()
     else:
@@ -294,8 +304,10 @@ def create_samplemeasurements(
         )
         for i in range(0, int(len(records) / batch_columns) + 1):
             session.execute(
-                f"""INSERT INTO samplemeasurement (sample_id, sequenceregion_id, {', '.join(measurement_columns)}) VALUES 
-                {','.join(records[i*batch_columns:(i+1)*batch_columns])};"""
+                text(
+                    f"""INSERT INTO samplemeasurement (sample_id, sequenceregion_id, {', '.join(measurement_columns)}) VALUES 
+                    {','.join(records[i*batch_columns:(i+1)*batch_columns])};"""
+                )
             )
             session.commit()
     else:
@@ -1366,7 +1378,7 @@ def load_db(
     if drop_all:
         logging.info("Dropping the database.")
         if use_redshift:
-            session_redshift.execute(stmts.delete_stmt_all)
+            session_redshift.execute(text(stmts.delete_stmt_all))
             session_redshift.commit()
             base.Base.metadata.drop_all(bind=session.bind)
         else:
@@ -1374,7 +1386,7 @@ def load_db(
 
         logging.info("Creating the database.")
         if use_redshift:
-            session_redshift.execute(stmts.create_stmt_redshift_tables)
+            session_redshift.execute(text(stmts.create_stmt_redshift_tables))
             session_redshift.commit()
             base.Base.metadata.create_all(bind=session.bind)
         else:
@@ -1387,7 +1399,7 @@ def load_db(
     elif drop_dataset:
         logging.info("Dropping the dataset tables.")
         if use_redshift:
-            session_redshift.execute(stmts.delete_stmt_all)
+            session_redshift.execute(text(stmts.delete_stmt_all))
             session_redshift.commit()
             for n, t in list(base.Base.metadata.tables.items())[::-1]:
                 if n in ("sequenceregion", "gene", "transcript"):
@@ -1399,7 +1411,7 @@ def load_db(
                     continue
                 t.drop(bind=session.bind, checkfirst=True)
         if use_redshift:
-            session_redshift.execute(stmts.create_stmt_redshift_tables)
+            session_redshift.execute(text(stmts.create_stmt_redshift_tables))
             session_redshift.commit()
             base.Base.metadata.create_all(bind=session.bind, checkfirst=True)
         else:

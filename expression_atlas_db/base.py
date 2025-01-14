@@ -4,23 +4,31 @@ This module defines the SQLAlchemy ORM models for the Expression Atlas database,
 including sequence regions (genes and transcripts), studies, samples, and expression data.
 """
 
+from typing import List, Optional, Dict, Any, ClassVar
+from datetime import datetime 
+
 from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    Float,
+    ForeignKey, 
+    Index, 
+    UniqueConstraint, 
+    create_engine, 
+    func, 
+    String, 
+    Float, 
+    Integer, 
+    Text, 
     Boolean,
     JSON,
-    Text,
-    DateTime,
-    ForeignKey,
-    Index,
-    create_engine,
-    func,
+    DateTime
 )
-from sqlalchemy.orm import relationship, sessionmaker, session
-from sqlalchemy.schema import UniqueConstraint
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import (
+    Mapped,
+    mapped_column,
+    relationship,
+    sessionmaker,
+    Session,
+    DeclarativeBase,
+)
 
 # String length constraints
 MAX_ID_LENGTH = 50
@@ -33,8 +41,9 @@ MAX_SRP_ID_LENGTH = 20
 MAX_SRX_ID_LENGTH = 20
 MAX_TIMESTAMPS_LENGTH = 100
 
-Base = declarative_base()
-
+class Base(DeclarativeBase):
+    """Base class for all models"""
+    pass
 
 class SequenceRegion(Base):
     """Base class for genomic sequence regions.
@@ -51,12 +60,12 @@ class SequenceRegion(Base):
 
     __tablename__ = "sequenceregion"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    orfdb_id = Column(Integer, nullable=False)
-    assembly_id = Column(String(MAX_ASSEMBLY_ID_LENGTH))
-    type = Column(String(30))
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    orfdb_id: Mapped[int] = mapped_column(nullable=False)
+    assembly_id: Mapped[Optional[str]] = mapped_column(String(MAX_ASSEMBLY_ID_LENGTH))
+    type: Mapped[str] = mapped_column(String(30))
 
-    __table_args__ = (UniqueConstraint("orfdb_id", "type"), {})
+    __table_args__ = (UniqueConstraint("orfdb_id", "type", "assembly_id"), {})
     __mapper_args__ = {
         "polymorphic_identity": "sequence_region",
         "polymorphic_on": "type",
@@ -78,16 +87,14 @@ class Gene(SequenceRegion):
 
     __tablename__ = "gene"
 
-    id = Column(
-        Integer, ForeignKey("sequenceregion.id", ondelete="cascade"), primary_key=True
-    )
-    gene_id = Column(String(MAX_ID_LENGTH))
-    gene_biotype = Column(String(MAX_BIOTYPE_LENGTH))
-    transcripts = relationship(
-        "Transcript",
-        foreign_keys="Transcript.gene_id",
+    id: Mapped[int] = mapped_column(ForeignKey("sequenceregion.id", ondelete="cascade"), primary_key=True)
+    gene_id: Mapped[str] = mapped_column(String(MAX_ID_LENGTH))
+    gene_biotype: Mapped[Optional[str]] = mapped_column(String(MAX_BIOTYPE_LENGTH))
+    
+    transcripts: Mapped[List["Transcript"]] = relationship(
         back_populates="gene",
         cascade="all, delete",
+        foreign_keys="Transcript.gene_id",
     )
 
     __table_args__ = (Index("idx_gene_id_gene", "gene_id"), {})
@@ -110,13 +117,12 @@ class Transcript(SequenceRegion):
 
     __tablename__ = "transcript"
 
-    id = Column(
-        Integer, ForeignKey("sequenceregion.id", ondelete="cascade"), primary_key=True
-    )
-    transcript_id = Column(String(MAX_ID_LENGTH))
-    gene_id = Column(Integer, ForeignKey("gene.id"))
-    gene_biotype = Column(String(MAX_BIOTYPE_LENGTH))
-    gene = relationship("Gene", foreign_keys=gene_id)
+    id: Mapped[int] = mapped_column(ForeignKey("sequenceregion.id", ondelete="cascade"), primary_key=True)
+    transcript_id: Mapped[str] = mapped_column(String(MAX_ID_LENGTH))
+    gene_id: Mapped[Optional[int]] = mapped_column(ForeignKey("gene.id"))
+    gene_biotype: Mapped[Optional[str]] = mapped_column(String(MAX_BIOTYPE_LENGTH))
+    
+    gene: Mapped["Gene"] = relationship(foreign_keys=gene_id)
 
     __table_args__ = (Index("idx_transcript_id_transcript", "transcript_id"), {})
     __mapper_args__ = {"polymorphic_identity": "transcript"}
@@ -137,21 +143,21 @@ class DataSet(Base):
 
     __tablename__ = "dataset"
 
-    alembic_revision_id = None
+    _alembic_revision_id: ClassVar[Optional[str]] = None
 
     @classmethod
-    def set_alembic(cls, alembic_revision_id: str):
+    def set_alembic(cls, alembic_revision_id: str) -> None:
         """Set the alembic revision ID for version tracking.
 
         Args:
             alembic_revision_id (str): The revision ID from alembic
         """
-        cls.alembic_revision_id = alembic_revision_id
+        cls._alembic_revision_id = alembic_revision_id
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    alembic_id = Column(String(30), default=lambda: __class__.alembic_revision_id)
-    created_at = Column(DateTime, server_default=func.now())
-    type = Column(String(30))
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    alembic_id: Mapped[Optional[str]] = mapped_column(String(30), default=lambda: __class__._alembic_revision_id)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    type: Mapped[str] = mapped_column(String(30))
 
     __mapper_args__ = {"polymorphic_identity": "dataset", "polymorphic_on": "type"}
 
@@ -186,26 +192,27 @@ class StudyQueue(DataSet):
     """
 
     __tablename__ = "studyqueue"
-    id = Column(Integer, ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
-    internal_id = Column(String(MAX_INTERNAL_ID_LENGTH), nullable=False)
-    geo_id = Column(String(MAX_GEO_ID_LENGTH))
-    srp_id = Column(String(MAX_SRP_ID_LENGTH))
-    study_id = Column(Integer)
-    pmid = Column(Text)
-    status = Column(Text)
-    quality = Column(Text)
-    technology = Column(Text)
-    title = Column(Text)
-    description = Column(Text)
-    category = Column(Text)
-    requestor = Column(Text)
-    priority = Column(Text)
-    contrast = Column(Text)
-    disease = Column(Text)
-    tissue = Column(Text)
-    comments = Column(Text)
-    public = Column(Boolean, default=False)
-    processed = Column(Boolean, default=False)
+    
+    id: Mapped[int] = mapped_column(ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
+    internal_id: Mapped[str] = mapped_column(String(MAX_INTERNAL_ID_LENGTH), nullable=False)
+    geo_id: Mapped[Optional[str]] = mapped_column(String(MAX_GEO_ID_LENGTH))
+    srp_id: Mapped[Optional[str]] = mapped_column(String(MAX_SRP_ID_LENGTH))
+    study_id: Mapped[Optional[int]] = mapped_column()
+    pmid: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[Optional[str]] = mapped_column(Text)
+    quality: Mapped[Optional[str]] = mapped_column(Text)
+    technology: Mapped[Optional[str]] = mapped_column(Text)
+    title: Mapped[Optional[str]] = mapped_column(Text)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    category: Mapped[Optional[str]] = mapped_column(Text)
+    requestor: Mapped[Optional[str]] = mapped_column(Text)
+    priority: Mapped[Optional[str]] = mapped_column(Text)
+    contrast: Mapped[Optional[str]] = mapped_column(Text)
+    disease: Mapped[Optional[str]] = mapped_column(Text)
+    tissue: Mapped[Optional[str]] = mapped_column(Text)
+    comments: Mapped[Optional[str]] = mapped_column(Text)
+    public: Mapped[bool] = mapped_column(Boolean, default=False)
+    processed: Mapped[bool] = mapped_column(Boolean, default=False)
 
     __mapper_args__ = {"polymorphic_identity": "studyqueue"}
 
@@ -235,35 +242,34 @@ class Study(DataSet):
     """
 
     __tablename__ = "study"
-    id = Column(Integer, ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
-    internal_id = Column(String(MAX_INTERNAL_ID_LENGTH), nullable=False)
-    geo_id = Column(String(MAX_GEO_ID_LENGTH))
-    srp_id = Column(String(MAX_SRP_ID_LENGTH))
-    bio_id = Column(String(MAX_ID_LENGTH))
-    pmid = Column(Text)
-    public = Column(Boolean, default=False)
-    quality = Column(Text)
-    timestamps = Column(String(MAX_TIMESTAMPS_LENGTH))
-    sizes = Column(String(100))
-    title = Column(Text)
-    description = Column(Text)
-    samples = relationship(
-        "Sample",
+    
+    id: Mapped[int] = mapped_column(ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
+    internal_id: Mapped[str] = mapped_column(String(MAX_INTERNAL_ID_LENGTH), nullable=False)
+    geo_id: Mapped[Optional[str]] = mapped_column(String(MAX_GEO_ID_LENGTH))
+    srp_id: Mapped[Optional[str]] = mapped_column(String(MAX_SRP_ID_LENGTH))
+    bio_id: Mapped[Optional[str]] = mapped_column(String(MAX_ID_LENGTH))
+    pmid: Mapped[Optional[str]] = mapped_column(Text)
+    public: Mapped[bool] = mapped_column(Boolean, default=False)
+    quality: Mapped[Optional[str]] = mapped_column(Text)
+    timestamps: Mapped[Optional[str]] = mapped_column(String(MAX_TIMESTAMPS_LENGTH))
+    sizes: Mapped[Optional[str]] = mapped_column(String(100))
+    title: Mapped[Optional[str]] = mapped_column(Text)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+
+    samples: Mapped[List["Sample"]] = relationship(
+        back_populates="study",
+        cascade="all, delete",
         foreign_keys="Sample.study_id",
+    )
+    contrasts: Mapped[List["Contrast"]] = relationship(
         back_populates="study",
         cascade="all, delete",
-    )
-    contrasts = relationship(
-        "Contrast",
         foreign_keys="Contrast.study_id",
-        back_populates="study",
-        cascade="all, delete",
     )
-    samplecontrasts = relationship(
-        "SampleContrast",
-        foreign_keys="SampleContrast.study_id",
+    samplecontrasts: Mapped[List["SampleContrast"]] = relationship(
         back_populates="study",
         cascade="all, delete",
+        foreign_keys="SampleContrast.study_id",
     )
 
     __mapper_args__ = {"polymorphic_identity": "study"}
@@ -287,17 +293,17 @@ class Sample(DataSet):
 
     __tablename__ = "sample"
 
-    id = Column(Integer, ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
-    study_id = Column(Integer, ForeignKey("study.id"))
-    srx_id = Column(String(MAX_SRX_ID_LENGTH), nullable=False)
-    atlas_group = Column(String(MAX_CONDITION_LENGTH), nullable=False)
-    fields = Column(JSON)
-    study = relationship("Study", foreign_keys=study_id)
-    samplecontrasts = relationship(
-        "SampleContrast",
-        foreign_keys="SampleContrast.sample_id",
-        cascade="all, delete",
+    id: Mapped[int] = mapped_column(ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
+    study_id: Mapped[int] = mapped_column(ForeignKey("study.id"))
+    srx_id: Mapped[str] = mapped_column(String(MAX_SRX_ID_LENGTH), nullable=False)
+    atlas_group: Mapped[str] = mapped_column(String(MAX_CONDITION_LENGTH), nullable=False)
+    fields: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON)
+
+    study: Mapped["Study"] = relationship(foreign_keys=study_id, back_populates="samples")
+    samplecontrasts: Mapped[List["SampleContrast"]] = relationship(
         back_populates="sample",
+        cascade="all, delete",
+        foreign_keys="SampleContrast.sample_id",
     )
 
     __table_args__ = (
@@ -329,20 +335,20 @@ class Contrast(DataSet):
 
     __tablename__ = "contrast"
 
-    id = Column(Integer, ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
-    study_id = Column(Integer, ForeignKey("study.id"))
-    contrast_name = Column(String(MAX_CONDITION_LENGTH), nullable=False)
-    sample_condition_key = Column(String(MAX_CONDITION_LENGTH))
-    left_condition_level = Column(String(MAX_CONDITION_LENGTH))
-    right_condition_level = Column(String(MAX_CONDITION_LENGTH))
-    left_condition_display = Column(String(MAX_CONDITION_LENGTH))
-    right_condition_display = Column(String(MAX_CONDITION_LENGTH))
-    study = relationship("Study", foreign_keys=study_id)
-    samplecontrasts = relationship(
-        "SampleContrast",
-        foreign_keys="SampleContrast.contrast_id",
-        cascade="all, delete",
+    id: Mapped[int] = mapped_column(ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
+    study_id: Mapped[int] = mapped_column(ForeignKey("study.id"))
+    contrast_name: Mapped[str] = mapped_column(String(MAX_CONDITION_LENGTH), nullable=False)
+    sample_condition_key: Mapped[Optional[str]] = mapped_column(String(MAX_CONDITION_LENGTH))
+    left_condition_level: Mapped[Optional[str]] = mapped_column(String(MAX_CONDITION_LENGTH))
+    right_condition_level: Mapped[Optional[str]] = mapped_column(String(MAX_CONDITION_LENGTH))
+    left_condition_display: Mapped[Optional[str]] = mapped_column(String(MAX_CONDITION_LENGTH))
+    right_condition_display: Mapped[Optional[str]] = mapped_column(String(MAX_CONDITION_LENGTH))
+    
+    study: Mapped["Study"] = relationship(foreign_keys=study_id, back_populates="contrasts")
+    samplecontrasts: Mapped[List["SampleContrast"]] = relationship(
         back_populates="contrast",
+        cascade="all, delete",
+        foreign_keys="SampleContrast.contrast_id",
     )
 
     __table_args__ = (
@@ -377,23 +383,27 @@ class SampleContrast(DataSet):
 
     __tablename__ = "samplecontrast"
 
-    id = Column(Integer, ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
-    sample_id = Column(Integer, ForeignKey("sample.id"))
-    contrast_id = Column(Integer, ForeignKey("contrast.id"))
-    study_id = Column(Integer, ForeignKey("study.id"))
-    sample_condition_key = Column(String(MAX_CONDITION_LENGTH))
-    condition_level = Column(String(MAX_CONDITION_LENGTH))
-    condition_display = Column(String(MAX_CONDITION_LENGTH))
-    contrast_side = Column(String(10))
-    sample = relationship(
-        "Sample",
+    id: Mapped[int] = mapped_column(ForeignKey("dataset.id", ondelete="cascade"), primary_key=True)
+    sample_id: Mapped[int] = mapped_column(ForeignKey("sample.id"))
+    contrast_id: Mapped[int] = mapped_column(ForeignKey("contrast.id"))
+    study_id: Mapped[int] = mapped_column(ForeignKey("study.id"))
+    sample_condition_key: Mapped[Optional[str]] = mapped_column(String(MAX_CONDITION_LENGTH))
+    condition_level: Mapped[Optional[str]] = mapped_column(String(MAX_CONDITION_LENGTH))
+    condition_display: Mapped[Optional[str]] = mapped_column(String(MAX_CONDITION_LENGTH))
+    contrast_side: Mapped[Optional[str]] = mapped_column(String(10))
+    
+    sample: Mapped["Sample"] = relationship(
         foreign_keys=sample_id,
+        back_populates="samplecontrasts"
     )
-    contrast = relationship(
-        "Contrast",
+    contrast: Mapped["Contrast"] = relationship(
         foreign_keys=contrast_id,
+        back_populates="samplecontrasts"
     )
-    study = relationship("Study", foreign_keys=study_id)
+    study: Mapped["Study"] = relationship(
+        foreign_keys=study_id,
+        back_populates="samplecontrasts"
+    )
 
     __table_args__ = (UniqueConstraint("sample_id", "contrast_id"), {})
     __mapper_args__ = {"polymorphic_identity": "samplecontrast"}
@@ -424,29 +434,27 @@ class DifferentialExpression(Base):
     """
 
     __tablename__ = "differentialexpression"
+    
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    contrast_id: Mapped[int] = mapped_column(ForeignKey("contrast.id"))
+    sequenceregion_id: Mapped[int] = mapped_column(ForeignKey("sequenceregion.id"))
+    basemean: Mapped[Optional[float]] = mapped_column(Float)
+    log2foldchange: Mapped[Optional[float]] = mapped_column(Float)
+    lfcse: Mapped[Optional[float]] = mapped_column(Float)
+    stat: Mapped[Optional[float]] = mapped_column(Float)
+    pvalue: Mapped[Optional[float]] = mapped_column(Float)
+    log10_pvalue: Mapped[Optional[float]] = mapped_column(Float)
+    padj: Mapped[Optional[float]] = mapped_column(Float)
+    log10_padj: Mapped[Optional[float]] = mapped_column(Float)
+    control_mean: Mapped[Optional[float]] = mapped_column(Float)
+    case_mean: Mapped[Optional[float]] = mapped_column(Float)
+    
+    contrast: Mapped["Contrast"] = relationship(foreign_keys=contrast_id)
+    sequenceregion: Mapped["SequenceRegion"] = relationship(foreign_keys=sequenceregion_id)
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    contrast_id = Column(Integer, ForeignKey("contrast.id"))
-    sequenceregion_id = Column(Integer, ForeignKey("sequenceregion.id"))
-    basemean = Column(Float)
-    log2foldchange = Column(Float)
-    lfcse = Column(Float)
-    stat = Column(Float)
-    pvalue = Column(Float)
-    log10_pvalue = Column(Float)
-    padj = Column(Float)
-    log10_padj = Column(Float)
-    control_mean = Column(Float)
-    case_mean = Column(Float)
-    contrast = relationship(
-        "Contrast",
-        foreign_keys=contrast_id,
-    )
-    sequenceregion = relationship("SequenceRegion", foreign_keys=sequenceregion_id)
-
-    _column_map = {
+    _column_map: Dict[str, str] = {
         "basemean": "baseMean",
-        "log2foldchange": "log2FoldChange",
+        "log2foldchange": "log2FoldChange", 
         "lfcse": "lfcSE",
         "stat": "stat",
         "log10_pvalue": "log10_pvalue",
@@ -475,20 +483,21 @@ class SampleMeasurement(Base):
         sample (Sample): Related sample record
         sequenceregion (SequenceRegion): Related sequence region record
     """
-
+    
     __tablename__ = "samplemeasurement"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    sample_id = Column(Integer, ForeignKey("sample.id"))
-    sequenceregion_id = Column(Integer, ForeignKey("sequenceregion.id"))
-    counts = Column(Float)
-    normed_counts = Column(Float)
-    tpm = Column(Float)
-    normed_counts_transform = Column(Float)
-    sample = relationship("Sample", foreign_keys=sample_id)
-    sequenceregion = relationship("SequenceRegion", foreign_keys=sequenceregion_id)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    sample_id: Mapped[int] = mapped_column(ForeignKey("sample.id"))
+    sequenceregion_id: Mapped[int] = mapped_column(ForeignKey("sequenceregion.id"))
+    counts: Mapped[Optional[float]] = mapped_column(Float)
+    normed_counts: Mapped[Optional[float]] = mapped_column(Float)
+    tpm: Mapped[Optional[float]] = mapped_column(Float)
+    normed_counts_transform: Mapped[Optional[float]] = mapped_column(Float)
+    
+    sample: Mapped["Sample"] = relationship(foreign_keys=sample_id)
+    sequenceregion: Mapped["SequenceRegion"] = relationship(foreign_keys=sequenceregion_id)
 
-    _column_map = {
+    _column_map: Dict[str, str] = {
         "counts": "counts",
         "normed_counts": "normed_counts",
         "tpm": "raw_tpm",
@@ -496,7 +505,7 @@ class SampleMeasurement(Base):
     }
 
 
-class _Session(session.Session):
+class _Session(Session):
     """Custom session class for Expression Atlas database connections.
 
     Extends SQLAlchemy's Session class with Expression Atlas specific functionality.
@@ -517,9 +526,9 @@ def configure(
     """Configure and create a database session.
 
     Args:
-        connection_str (str): Database connection string
-        echo (bool): Enable SQL query logging. Defaults to False.
-        read_only (bool): Set connection to read-only mode. Defaults to False.
+        connection_str: Database connection string
+        echo: Enable SQL query logging
+        read_only: Set connection to read-only mode
 
     Returns:
         Session (_Session): Configured database session

@@ -114,7 +114,7 @@ class GTFParser:
             columns=[
                 "transcript_id",
                 "gene_id",
-                "veliadb_id",
+                "orfdb_id",
                 "gene_biotype",
             ],
         )
@@ -122,13 +122,13 @@ class GTFParser:
             genes,
             columns=[
                 "gene_id",
-                "veliadb_id",
+                "orfdb_id",
                 "gene_biotype",
             ],
         )
 
-        transcript_df["veliadb_id"] = transcript_df["veliadb_id"].astype(int)
-        gene_df["veliadb_id"] = gene_df["veliadb_id"].astype(int)
+        transcript_df["orfdb_id"] = transcript_df["orfdb_id"].astype(int)
+        gene_df["orfdb_id"] = gene_df["orfdb_id"].astype(int)
         transcript_df["assembly_id"] = self.genome_build
         gene_df["assembly_id"] = self.genome_build
 
@@ -141,7 +141,7 @@ class GTFParser:
 
     @staticmethod
     def parse_gtf_line(
-        gtf_line: str, no_chr: bool = True
+        gtf_line: str, no_chr: bool = True, rename_gene_type: bool = True,
     ) -> Tuple[Dict[str, Union[str, int]], Dict[str, str]]:
         """Parse a single line from a GTF file.
 
@@ -200,8 +200,8 @@ class ExperimentParser:
     including differential expression results and sample measurements.
 
     Attributes:
-        velia_study_id (str): Identifier for the study
-        velia_study_loc (Path): Location of AnnData files
+        internal_study_id (str): Identifier for the study
+        internal_study_loc (Path): Location of AnnData files
         _s3_enabled (bool): Whether S3 access is enabled
         _s3fs (s3fs.core.S3FileSystem | None): S3 filesystem object if enabled
         _transcript_ts (float | None): Timestamp of transcript data
@@ -213,19 +213,19 @@ class ExperimentParser:
         _assembly_id_default (str): Default assembly id to use 
     """
 
-    _assembly_id_default = "veliadb_v0c"
+    _assembly_id_default = "orfdb_v0c"
 
     def __init__(
-        self, velia_study_id: str, exp_loc: Path = Path(settings.test_experiment_loc)
+        self, internal_study_id: str, exp_loc: Path = Path(settings.test_experiment_loc)
     ) -> None:
         """Initialize ExperimentParser with study ID and data location.
 
         Args:
-            velia_study_id (str): Study identifier to load
+            internal_study_id (str): Study identifier to load
             exp_loc (Path): Base location of AnnData files
         """
-        self.velia_study_id = velia_study_id
-        self.velia_study_loc = exp_loc / velia_study_id
+        self.internal_study_id = internal_study_id
+        self.internal_study_loc = exp_loc / internal_study_id
         self._exp_loc = exp_loc
 
         self._assembly_id = None
@@ -244,7 +244,7 @@ class ExperimentParser:
     @property
     def assembly_id(self) -> str:
         return (
-            f"veliadb_{self._assembly_id}"
+            f"orfdb_{self._assembly_id}"
             if self._assembly_id
             else self._assembly_id_default
         )
@@ -344,17 +344,17 @@ class ExperimentParser:
         """
         try:
             if not self._s3_enabled:
-                fh = list(Path(self.velia_study_loc / "de_results").glob(glob_pattern))[
+                fh = list(Path(self.internal_study_loc / "de_results").glob(glob_pattern))[
                     0
                 ]
             else:
                 s3_path = str(
-                    Path(self.velia_study_loc / "de_results" / glob_pattern)
+                    Path(self.internal_study_loc / "de_results" / glob_pattern)
                 ).replace("s3:/", "s3://")
                 fh = self._s3fs.glob(s3_path)[0]
         except IndexError:
             raise FileNotFoundError(
-                f"AnnData with glob pattern: {glob_pattern} not found for study {self.velia_study_loc}."
+                f"AnnData with glob pattern: {glob_pattern} not found for study {self.internal_study_loc}."
             )
 
         if "transcript" in glob_pattern:
@@ -392,7 +392,7 @@ class ExperimentParser:
             else:
                 self._assembly_id = self._exp_loc.parts[-1]
         else:
-            s3_path = str(Path(self.velia_study_loc)).replace("s3:/", "s3://")
+            s3_path = str(Path(self.internal_study_loc)).replace("s3:/", "s3://")
             self._assembly_id = Path(self._s3fs.glob(s3_path)[0]).parts[-2]
 
         if self._assembly_id == "v1":
@@ -414,17 +414,17 @@ class ExperimentParser:
         glob_pattern = f"*dds_{adata_type}*"
         try:
             if not self._s3_enabled:
-                fh = list(Path(self.velia_study_loc / "de_results").glob(glob_pattern))[
+                fh = list(Path(self.internal_study_loc / "de_results").glob(glob_pattern))[
                     0
                 ]
             else:
                 s3_path = str(
-                    Path(self.velia_study_loc / "de_results" / glob_pattern)
+                    Path(self.internal_study_loc / "de_results" / glob_pattern)
                 ).replace("s3:/", "s3://")
                 fh = self._s3fs.glob(s3_path)[0]
         except IndexError:
             raise FileNotFoundError(
-                f"AnnData with glob pattern: {glob_pattern} not found for study {self.velia_study_loc}."
+                f"AnnData with glob pattern: {glob_pattern} not found for study {self.internal_study_loc}."
             )
 
         if adata_type == "transcript":
